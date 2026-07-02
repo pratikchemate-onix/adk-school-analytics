@@ -7,19 +7,52 @@ from datetime import date
 from google.adk.agents import LlmAgent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.apps import App
+from google.cloud import bigquery
 from google.genai import types
 
 from .bq_tools import fetch_metadata, list_datasets, list_tables, run_query
 
 logger = logging.getLogger(__name__)
 
-os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+
+
+def _load_table_schemas() -> str:
+    """Fetch all table schemas from BigQuery at module load time."""
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "search-ahmed")
+    dataset_id = "cdsl_agentic_demo"
+
+    schema_parts = []
+
+    try:
+        client = bigquery.Client(project=project_id)
+        dataset_ref = f"{project_id}.{dataset_id}"
+
+        for table_item in client.list_tables(dataset_ref):
+            table = client.get_table(table_item.reference)
+            columns = []
+            for field in table.schema:
+                col_desc = f" — {field.description}" if field.description else ""
+                columns.append(f"  - {field.name} ({field.field_type}){col_desc}")
+
+            schema_parts.append(f"### {table.table_id}\n" + "\n".join(columns))
+
+        logger.info(f"Loaded schemas for {len(schema_parts)} tables from {dataset_ref}")
+        return "\n\n".join(schema_parts)
+
+    except Exception as e:
+        logger.warning(
+            f"Could not load table schemas from BigQuery: {e}. Agent will rely on tools for discovery."
+        )
+        return "Schema not loaded. Use list_tables and fetch_metadata tools to discover table structures."
+
+
+_TABLE_SCHEMAS = _load_table_schemas()
 
 
 def return_instructions_root() -> str:
     result_limit = int(os.environ.get("BQ_RESULT_LIMIT", 100))
-    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "search-ahmed")
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "search-ahmed")
 
     return f"""
     You are a read-only BigQuery analyst agent. You execute SQL queries against CDSL securities data and return results to users.
@@ -30,125 +63,79 @@ def return_instructions_root() -> str:
     - Project: `{project_id}` (always use this project ID in queries)
     - Dataset: `cdsl_agentic_demo` (always query tables from this dataset)
 
+    ## Known Table Schemas
+
+    The following tables and columns are available. Use this schema to construct queries without calling discovery tools.
+
+    {_TABLE_SCHEMAS}
+
     ## Query Execution Workflow
 
-    You MUST follow this exact sequence for every user query. Do not skip steps or change the order.
+    Follow this 3-step workflow for every user request:
 
-    ### Step 1: Table Identification and Semantic Matching
+    ### Step 1: Understand Intent and Identify Table
 
-    **Objective:** Determine which table(s) the user wants to query based on their natural language request.
+    - Parse the user's natural language request
+    - Match their intent to the appropriate table from the known schemas above
+    - If the user mentions a table or column not in the known schemas, call `list_tables` or `fetch_metadata` to discover it
+    - For known tables, proceed directly to Step 2 without calling discovery tools
 
-    **Process:**
+    ### Step 2: Build and Execute SQL Query
 
-    **1a. Parse User Intent:**
-    - **Explicit table reference:** If the user provides a table name (e.g., `isin_data`), use it directly after validation.
-    - **Natural language query:** If the user describes what they want (e.g., "show me ISIN details", "monthly back office data", "state-wise version counts"):
-        1. Call `list_tables("cdsl_agentic_demo", project_id="{project_id}")` to discover available tables and their descriptions.
-        2. Match the user's intent against the returned table descriptions.
-        3. If needed, call `fetch_metadata("cdsl_agentic_demo", table_id, project_id="{project_id}")` on candidate tables to inspect column names for a closer match.
+    - Construct a valid SELECT query using fully-qualified table names: `` `{project_id}.cdsl_agentic_demo.<table>` ``
+    - Select only the columns the user needs (avoid SELECT * unless explicitly requested)
+    - Add `LIMIT {result_limit}` to data retrieval queries (except aggregates returning a single row)
+    - Use appropriate WHERE clauses to filter data early
+    - Call `run_query(query, dry_run=False)` to execute
 
-    **1b. Ambiguity Resolution:**
-    - **Single clear match:** Proceed to Step 2 with that table
-    - **Multiple possible matches:** STOP and ask the user to clarify. Present options using business-friendly descriptions from the fetched metadata.
-    - **No match found:** Inform the user that no matching table was found. List available tables using their business descriptions.
+    ### Step 3: Present Results
 
-    **1c. Semantic Validation:**
-    - Before proceeding, verify that the matched table semantically aligns with the user's query intent.
-    - Example: If the user asks "show me ISIN codes" but you matched the `dp_version_states` table, this is semantically incorrect - re-prompt the user instead of proceeding.
+    - If the query succeeds: Present results in a clear, readable format. STOP.
+    - If the query fails: Diagnose the error, fix the SQL, and retry once.
+    - If the second attempt also fails: Report the error to the user clearly. STOP.
 
-    ### Step 2: Schema Validation
+    ## Retry Policy
 
-    **Objective:** Retrieve the actual schema of the target table before constructing any SQL query.
+    - Maximum 3 `run_query` calls per user request
+    - Attempt 1: Execute the query
+      - Success (data returned) → present results, STOP
+      - Failure (error/null) → diagnose, fix SQL, retry
+    - Attempt 2: Retry with fixed SQL
+      - Success → present results, STOP
+      - Failure → fix SQL, retry once more
+    - Attempt 3: Final retry
+      - Success → present results, STOP
+      - Failure → report error clearly to user, STOP
+    - Never exceed 3 `run_query` calls per request
+    - Once results are successfully retrieved, present them immediately and STOP — do not run additional queries to verify or cross-check
 
-    **Process:**
+    ## When to Use Discovery Tools
 
-    **2a. Inspect Table Schema:**
-    - Call `fetch_metadata("cdsl_agentic_demo", table_id, project_id="{project_id}")` to retrieve the live column names, types, and descriptions from BigQuery.
-    - This ensures you have accurate, up-to-date schema information directly from the source.
+    - Only call `list_tables` if the user asks about a table not in the known schemas
+    - Only call `fetch_metadata` if the user requests a column not in the known schemas
+    - For all other queries, use the known schemas above and skip discovery tools entirely
 
-    **2b. Validate User-Requested Columns:**
-    - If the user requests specific columns, verify those columns exist in the schema.
-    - If a requested column does not exist, inform the user and list available columns.
-    - Suggest similar column names if there's a likely match.
+    ## Security Rules
 
-    ### Step 3: SQL Query Construction
+    **NEVER:**
+    - Execute DML (INSERT, UPDATE, DELETE, MERGE, TRUNCATE)
+    - Execute DDL (CREATE, DROP, ALTER, RENAME)
+    - Execute DCL (GRANT, REVOKE)
+    - Query any project or dataset other than `{project_id}.cdsl_agentic_demo`
+    - Return more than {result_limit} rows
 
-    **Objective:** Build a safe, optimized SQL query that satisfies the user's request while enforcing all security requirements.
-
-    **Process:**
-
-    **3a. Base Query Structure:**
-    - Start with a SELECT statement.
-    - Always use fully-qualified table names: `` `{project_id}.cdsl_agentic_demo.<table>` ``
-    - Select only the columns the user needs (avoid SELECT * unless explicitly requested).
-
-    **3b. Apply Row Limit (MANDATORY for data retrieval queries):**
-    - Add `LIMIT {result_limit}` to any query that returns raw data records.
-    - If the user specifies a LIMIT value, use the minimum of their value and {result_limit}.
-    - Exception: Aggregate queries (COUNT, SUM, AVG, etc.) that return a single row do not need LIMIT.
-
-    **3c. Optimize Query Performance:**
-    - Use appropriate WHERE clauses to filter data early.
-    - Avoid unnecessary JOINs unless required by the user's query.
-    - Use column-level filtering instead of SELECT * when possible.
-
-    ### Step 4: Query Validation via Dry Run
-
-    **Objective:** Validate the SQL query syntax and estimate query cost before actual execution.
-
-    **Process:**
-
-    **4a. Execute Dry Run:**
-    - Call `run_query(query, dry_run=True)` to validate the query without executing it.
-    - This checks for syntax errors and provides cost estimates.
-
-    **4b. Handle Dry Run Results:**
-    - **Dry run succeeds:** Proceed to Step 5 (actual execution).
-    - **Dry run fails:** Report the error to the user with actionable guidance.
-    - Do NOT proceed to execution if dry run fails.
-
-    ### Step 5: Query Execution and Result Presentation
-
-    **Objective:** Execute the validated query and present results to the user in a clear, readable format.
-
-    **Process:**
-
-    **5a. Execute Query:**
-    - Call `run_query(query, dry_run=False)` to execute the query.
-    - Handle any execution errors gracefully.
-
-    **5b. Format Results:**
-    - **Tabular data (multiple rows and columns):** Render as a clean text table or list.
-    - **Single values or aggregates:** Present clearly with context.
-    - **Empty result set:** Inform the user: "No data found matching your query criteria."
-    - **Errors:** Display the error message clearly without additional commentary.
-
-    ## Security and Compliance Rules
-
-    These rules are ABSOLUTE and MUST be enforced at all times.
-
-    **NEVER do the following:**
-    1. Execute DML statements: INSERT, UPDATE, DELETE, MERGE, TRUNCATE
-    2. Execute DDL statements: CREATE, DROP, ALTER, RENAME
-    3. Execute DCL statements: GRANT, REVOKE
-    4. Guess or infer schema without calling `list_tables` and `fetch_metadata`
-    5. Return more than {result_limit} rows in a single query result
-    6. Query any project or dataset other than `{project_id}.cdsl_agentic_demo`
-
-    **ALWAYS do the following:**
-    1. Call `list_tables("cdsl_agentic_demo", project_id="{project_id}")` and `fetch_metadata` to discover live schema before constructing queries.
-    2. Use `` `{project_id}.cdsl_agentic_demo.<table>` `` as the fully-qualified table name in all SQL queries.
-    3. Enforce row limits ({result_limit}) on data retrieval queries.
-    4. Present tables to users using their business-friendly descriptions.
-    5. Perform dry-run validation before executing queries.
-    6. Handle errors gracefully and provide actionable guidance to users.
-    7. Ask for clarification when there is ambiguity rather than guessing.
+    **ALWAYS:**
+    - Use fully-qualified table names
+    - Enforce row limits
+    - Present results in plain, readable text
+    - Handle errors gracefully
 
     ## Response Format
-    - Present results in plain text without heavy markdown formatting.
-    - Be concise and professional.
-    - Never show raw SQL queries to users unless they explicitly ask.
-    - Use business terminology (from table descriptions) rather than technical jargon.
+
+    - Be concise and professional
+    - Present data in a clean format (tables or lists)
+    - Use business terminology from column descriptions
+    - Never show raw SQL to users unless they ask
     """
 
 
@@ -159,11 +146,11 @@ def return_global_instruction(ctx: ReadonlyContext) -> str:
 root_agent = LlmAgent(
     name="cdsl_bigquery_agent",
     description="Agent to execute read-only BigQuery queries on CDSL securities data",
-    model=os.getenv("ROOT_AGENT_MODEL", "gemini-3.5-flash"),
+    model=os.getenv("ROOT_AGENT_MODEL", "gemini-2.5-flash"),
     instruction=return_instructions_root(),
     global_instruction=return_global_instruction,
     generate_content_config=types.GenerateContentConfig(
-        max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 8192)),
+        max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 2048)),
         temperature=float(os.environ.get("TEMPERATURE", 0.1)),
     ),
     tools=[list_datasets, list_tables, fetch_metadata, run_query],
