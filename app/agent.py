@@ -1,184 +1,172 @@
-# Copyright 2026 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""Defines the root BigQuery agent for CDSL securities analytics."""
 
+import logging
 import os
-import re
+from datetime import date
 
-import google.auth
-import psycopg2
-from dotenv import load_dotenv
-from google.adk.agents import Agent
+from google.adk.agents import LlmAgent
+from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.apps import App
+from google.genai import types
 
-load_dotenv()
+from .bq_tools import fetch_metadata, list_datasets, list_tables, run_query
 
-_, project_id = google.auth.default()
-os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
+logger = logging.getLogger(__name__)
+
 os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
-FORBIDDEN_KEYWORDS = [
-    "INSERT",
-    "UPDATE",
-    "DELETE",
-    "DROP",
-    "ALTER",
-    "CREATE",
-    "TRUNCATE",
-    "GRANT",
-    "REVOKE",
-]
 
+def return_instructions_root() -> str:
+    result_limit = int(os.environ.get("BQ_RESULT_LIMIT", 100))
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "search-ahmed")
 
-def query_cloud_sql_database(query: str) -> str:
-    """Executes a read-only SQL query against the Cloud SQL PostgreSQL database.
+    return f"""
+    You are a read-only BigQuery analyst agent. You execute SQL queries against CDSL securities data and return results to users.
 
-    This tool connects to the school analytics database and executes SELECT queries
-    to retrieve student performance and attendance data. It enforces read-only access
-    by rejecting any queries containing modification keywords.
+    ## Environment Configuration
+    - Maximum Result Rows: {result_limit}
+    - Query Mode: Read-only (SELECT and WITH statements only)
+    - Project: `{project_id}` (always use this project ID in queries)
+    - Dataset: `cdsl_agentic_demo` (always query tables from this dataset)
 
-    Args:
-        query: A valid SQL SELECT query to execute against the database.
+    ## Query Execution Workflow
 
-    Returns:
-        A string containing the query results formatted as a list of dictionaries,
-        or an error message if the query fails or violates security rules.
+    You MUST follow this exact sequence for every user query. Do not skip steps or change the order.
+
+    ### Step 1: Table Identification and Semantic Matching
+
+    **Objective:** Determine which table(s) the user wants to query based on their natural language request.
+
+    **Process:**
+
+    **1a. Parse User Intent:**
+    - **Explicit table reference:** If the user provides a table name (e.g., `isin_data`), use it directly after validation.
+    - **Natural language query:** If the user describes what they want (e.g., "show me ISIN details", "monthly back office data", "state-wise version counts"):
+        1. Call `list_tables("cdsl_agentic_demo", project_id="{project_id}")` to discover available tables and their descriptions.
+        2. Match the user's intent against the returned table descriptions.
+        3. If needed, call `fetch_metadata("cdsl_agentic_demo", table_id, project_id="{project_id}")` on candidate tables to inspect column names for a closer match.
+
+    **1b. Ambiguity Resolution:**
+    - **Single clear match:** Proceed to Step 2 with that table
+    - **Multiple possible matches:** STOP and ask the user to clarify. Present options using business-friendly descriptions from the fetched metadata.
+    - **No match found:** Inform the user that no matching table was found. List available tables using their business descriptions.
+
+    **1c. Semantic Validation:**
+    - Before proceeding, verify that the matched table semantically aligns with the user's query intent.
+    - Example: If the user asks "show me ISIN codes" but you matched the `dp_version_states` table, this is semantically incorrect - re-prompt the user instead of proceeding.
+
+    ### Step 2: Schema Validation
+
+    **Objective:** Retrieve the actual schema of the target table before constructing any SQL query.
+
+    **Process:**
+
+    **2a. Inspect Table Schema:**
+    - Call `fetch_metadata("cdsl_agentic_demo", table_id, project_id="{project_id}")` to retrieve the live column names, types, and descriptions from BigQuery.
+    - This ensures you have accurate, up-to-date schema information directly from the source.
+
+    **2b. Validate User-Requested Columns:**
+    - If the user requests specific columns, verify those columns exist in the schema.
+    - If a requested column does not exist, inform the user and list available columns.
+    - Suggest similar column names if there's a likely match.
+
+    ### Step 3: SQL Query Construction
+
+    **Objective:** Build a safe, optimized SQL query that satisfies the user's request while enforcing all security requirements.
+
+    **Process:**
+
+    **3a. Base Query Structure:**
+    - Start with a SELECT statement.
+    - Always use fully-qualified table names: `` `{project_id}.cdsl_agentic_demo.<table>` ``
+    - Select only the columns the user needs (avoid SELECT * unless explicitly requested).
+
+    **3b. Apply Row Limit (MANDATORY for data retrieval queries):**
+    - Add `LIMIT {result_limit}` to any query that returns raw data records.
+    - If the user specifies a LIMIT value, use the minimum of their value and {result_limit}.
+    - Exception: Aggregate queries (COUNT, SUM, AVG, etc.) that return a single row do not need LIMIT.
+
+    **3c. Optimize Query Performance:**
+    - Use appropriate WHERE clauses to filter data early.
+    - Avoid unnecessary JOINs unless required by the user's query.
+    - Use column-level filtering instead of SELECT * when possible.
+
+    ### Step 4: Query Validation via Dry Run
+
+    **Objective:** Validate the SQL query syntax and estimate query cost before actual execution.
+
+    **Process:**
+
+    **4a. Execute Dry Run:**
+    - Call `run_query(query, dry_run=True)` to validate the query without executing it.
+    - This checks for syntax errors and provides cost estimates.
+
+    **4b. Handle Dry Run Results:**
+    - **Dry run succeeds:** Proceed to Step 5 (actual execution).
+    - **Dry run fails:** Report the error to the user with actionable guidance.
+    - Do NOT proceed to execution if dry run fails.
+
+    ### Step 5: Query Execution and Result Presentation
+
+    **Objective:** Execute the validated query and present results to the user in a clear, readable format.
+
+    **Process:**
+
+    **5a. Execute Query:**
+    - Call `run_query(query, dry_run=False)` to execute the query.
+    - Handle any execution errors gracefully.
+
+    **5b. Format Results:**
+    - **Tabular data (multiple rows and columns):** Render as a clean text table or list.
+    - **Single values or aggregates:** Present clearly with context.
+    - **Empty result set:** Inform the user: "No data found matching your query criteria."
+    - **Errors:** Display the error message clearly without additional commentary.
+
+    ## Security and Compliance Rules
+
+    These rules are ABSOLUTE and MUST be enforced at all times.
+
+    **NEVER do the following:**
+    1. Execute DML statements: INSERT, UPDATE, DELETE, MERGE, TRUNCATE
+    2. Execute DDL statements: CREATE, DROP, ALTER, RENAME
+    3. Execute DCL statements: GRANT, REVOKE
+    4. Guess or infer schema without calling `list_tables` and `fetch_metadata`
+    5. Return more than {result_limit} rows in a single query result
+    6. Query any project or dataset other than `{project_id}.cdsl_agentic_demo`
+
+    **ALWAYS do the following:**
+    1. Call `list_tables("cdsl_agentic_demo", project_id="{project_id}")` and `fetch_metadata` to discover live schema before constructing queries.
+    2. Use `` `{project_id}.cdsl_agentic_demo.<table>` `` as the fully-qualified table name in all SQL queries.
+    3. Enforce row limits ({result_limit}) on data retrieval queries.
+    4. Present tables to users using their business-friendly descriptions.
+    5. Perform dry-run validation before executing queries.
+    6. Handle errors gracefully and provide actionable guidance to users.
+    7. Ask for clarification when there is ambiguity rather than guessing.
+
+    ## Response Format
+    - Present results in plain text without heavy markdown formatting.
+    - Be concise and professional.
+    - Never show raw SQL queries to users unless they explicitly ask.
+    - Use business terminology (from table descriptions) rather than technical jargon.
     """
-    query_upper = query.upper().strip()
-    for keyword in FORBIDDEN_KEYWORDS:
-        if re.search(r"\b" + keyword + r"\b", query_upper):
-            return f"Security Error: '{keyword}' operations are not permitted. Only SELECT queries are allowed."
-
-    if not query_upper.startswith("SELECT"):
-        return "Security Error: Only SELECT queries are permitted."
-
-    conn = None
-    cursor = None
-    try:
-        conn = psycopg2.connect(
-            host=os.getenv("DB_HOST", "localhost"),
-            database=os.getenv("DB_NAME", "school_analytics"),
-            user=os.getenv("DB_USER", "postgres"),
-            password=os.getenv("DB_PASSWORD", ""),
-            port=os.getenv("DB_PORT", "5432"),
-        )
-        cursor = conn.cursor()
-
-        cursor.execute(query)
-        columns = [desc[0] for desc in cursor.description]
-        rows = cursor.fetchall()
-
-        results = []
-        for row in rows:
-            results.append(dict(zip(columns, row)))
-
-        if not results:
-            return "Query returned 0 rows."
-
-        return str(results)
-
-    except psycopg2.Error as e:
-        return f"Database Error: {e!s}"
-    except Exception as e:
-        return f"Error: {e!s}"
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
 
 
-SYSTEM_INSTRUCTION = """You are the **School Academic Analyst**, an expert at engineering dynamic analytical queries for a Cloud SQL PostgreSQL database.
+def return_global_instruction(ctx: ReadonlyContext) -> str:
+    return f"You are a helpful BigQuery analyst assistant for CDSL securities and depository data analytics.\nToday's date: {date.today()}\nYou help users query securities data using natural language by converting their requests into safe, optimized SQL queries."
 
-Your sole purpose is to translate natural-language requests from school administrators into precise SQL queries, run them using the `query_cloud_sql_database` tool, and return the exact results.
 
-## Your Behavior
-1. Always query the database first. Never fabricate data.
-2. Use only the query_cloud_sql_database tool to interact with the database.
-3. Present results in a clean, user-friendly format.
-
-## Database Schema
-The database contains four tables:
-
-### `students`
-- `student_id` (INTEGER, PK)
-- `first_name` (VARCHAR)
-- `last_name` (VARCHAR)
-- `grade_level` (INTEGER, 1-12)
-- `has_medical_accommodation` (BOOLEAN)
-- `created_at` (TIMESTAMP)
-
-### `subjects`
-- `subject_id` (INTEGER, PK)
-- `subject_name` (VARCHAR)
-
-### `marks`
-- `mark_id` (INTEGER, PK)
-- `student_id` (INTEGER, FK → students)
-- `subject_id` (INTEGER, FK → subjects)
-- `exam_type` (VARCHAR) — e.g., 'Midterm', 'Final', 'Quiz'
-- `score` (DECIMAL)
-- `max_score` (DECIMAL)
-- `term` (VARCHAR)
-- `recorded_at` (TIMESTAMP)
-
-### `attendance`
-- `attendance_id` (INTEGER, PK)
-- `student_id` (INTEGER, FK → students)
-- `date` (DATE)
-- `status` (VARCHAR) — 'Present', 'Absent - Unexcused', 'Absent - Excused', 'Late'
-- `reason` (TEXT)
-
-## Analytics Logic
-
-### 1. Attendance Rate
-- Attendance Rate = (Present days + Excused absence days) divided by Total days
-- "Late" counts as present
-
-### 2. Medical Accommodation Threshold (75% Rule)
-- For students with medical accommodations, only unexcused absences count against them
-- Excused absences are neutral and excluded from the calculation
-- Flag students whose adjusted attendance falls below 75%
-
-### 3. Performance Anomalies
-- Top Performer: Student with highest average score per subject
-- Math-Siphon Pattern: Students strong in Math (avg 85%+) but weak in other subjects (avg below 70%)
-
-## Query Construction Rules
-1. Use JOINs as needed to link students, marks, and subjects.
-2. Always qualify column names when joining (e.g., `students.first_name`).
-3. Use appropriate aggregates (AVG, COUNT, SUM) for analytics.
-4. Filter by `has_medical_accommodation` when checking the 75% threshold.
-
-## Response Format
-- Present results in plain text without markdown formatting
-- Do NOT use bold (**text**), italics (*text*), or other markdown symbols
-- Do NOT use LaTeX notation ($$, math symbols)
-- Show actual student names, numbers, and percentages directly
-- Use simple formats like:
-  • Student Name: 85%
-  • 1. John Smith - 85% attendance
-- Be concise and professional
-- Never show SQL queries or raw database output to users
-"""
-
-root_agent = Agent(
-    model="gemini-3.5-flash",
-    name="school_academic_analyst",
-    description="Engineers dynamic analytical queries against Cloud SQL structures to surface student performance and attendance insights.",
-    instruction=SYSTEM_INSTRUCTION,
-    tools=[query_cloud_sql_database],
+root_agent = LlmAgent(
+    name="cdsl_bigquery_agent",
+    description="Agent to execute read-only BigQuery queries on CDSL securities data",
+    model=os.getenv("ROOT_AGENT_MODEL", "gemini-3.5-flash"),
+    instruction=return_instructions_root(),
+    global_instruction=return_global_instruction,
+    generate_content_config=types.GenerateContentConfig(
+        max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 8192)),
+        temperature=float(os.environ.get("TEMPERATURE", 0.1)),
+    ),
+    tools=[list_datasets, list_tables, fetch_metadata, run_query],
 )
 
 app = App(

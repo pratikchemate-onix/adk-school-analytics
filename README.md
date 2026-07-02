@@ -1,27 +1,23 @@
-# AI-Powered School Academic Analytics System
+# CDSL BigQuery Analytics Agent
 
-An autonomous analytics agent built with **Google ADK** and **PostgreSQL** that translates natural language queries into SQL, runs them against a school database, and returns conversational insights.
+An AI-powered natural language interface for querying CDSL securities and depository data stored in BigQuery. Users can ask questions in plain English and get insights without writing SQL.
 
 - **Model:** Gemini 3.5 Flash
 - **Runtime:** Google Agent Development Kit (ADK)
-- **Database:** PostgreSQL (local or Google Cloud SQL)
+- **Database:** BigQuery (`search-ahmed.cdsl_agentic_demo`)
 
 ## Project Structure
 
 ```
-adk-school-analytics/
+cdsl-bigquery-agent/
 ├── app/
-│   ├── agent.py               # Analytics agent + query_cloud_sql_database tool
+│   ├── agent.py          # CDSL analytics agent with 5-step query workflow
+│   ├── bq_tools.py       # BigQuery tools (list_tables, fetch_metadata, run_query)
 │   ├── agent_engine_app.py    # Agent Engine deployment wrapper
 │   └── app_utils/             # Utilities (telemetry, deploy, typing)
-├── data/
-│   └── seed.sql               # Pre-generated synthetic dataset (ready to import)
 ├── tests/
 │   ├── unit/                  # Tool security + execution tests
-│   ├── integration/           # Agent stream tests
-│   └── eval/                  # ADK evaluation sets
-├── schema.sql                 # Database DDL (4 tables + indexes)
-├── seed_data.py               # Synthetic data generator (Faker)
+│   └── integration/           # Agent stream tests
 ├── .env.example               # Environment variable template
 ├── Makefile                   # Dev commands
 └── pyproject.toml             # Dependencies
@@ -30,41 +26,39 @@ adk-school-analytics/
 ## Requirements
 
 - **uv** — Python package manager ([install](https://docs.astral.sh/uv/getting-started/installation/))
-- **PostgreSQL 14+** — local instance or Google Cloud SQL
 - **Google Cloud SDK** — for GCP/Vertex AI access ([install](https://cloud.google.com/sdk/docs/install))
+- **Service Account** — with BigQuery access (see Setup below)
 - **make** — pre-installed on most Unix systems
 
-## Getting Started
+## Setup
 
 ### 1. Clone the repo
 
 ```bash
 git clone https://github.com/pratikchemate-onix/adk-school-analytics
 cd adk-school-analytics
+git checkout CDSL
 ```
 
-### 2. Set up the database
+### 2. Create a Service Account
 
-```bash
-createdb school_analytics
-psql -d school_analytics -f schema.sql       # create tables and indexes
-psql -d school_analytics -f data/seed.sql    # load synthetic dataset
-```
+Create a GCP Service Account with the following roles on the `search-ahmed` project:
 
-### 3. Configure credentials
+- `roles/bigquery.dataViewer` — read access to BigQuery datasets
+- `roles/bigquery.jobUser` — permission to run queries
+
+Download the JSON key file and save it securely (never commit to git).
+
+### 3. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your database credentials:
+Edit `.env` and set the path to your Service Account key:
 
 ```
-DB_HOST=localhost
-DB_NAME=school_analytics
-DB_USER=postgres
-DB_PASSWORD=your_password_here
-DB_PORT=5432
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/sa-key.json
 ```
 
 ### 4. Install and run
@@ -76,46 +70,47 @@ make playground
 
 Open `http://127.0.0.1:8501`, select the `app` folder, and start querying.
 
-## Dataset
+## BigQuery Dataset
 
-The `data/seed.sql` file contains a pre-generated synthetic dataset:
+The agent queries the `cdsl_agentic_demo` dataset in the `search-ahmed` project.
 
-| Table | Rows | Notes |
-|-------|------|-------|
-| students | 50 | 10 with medical accommodations |
-| subjects | 6 | Mathematics, Science, English, History, Geography, Art |
-| marks | 1800 | 5 students with injected math-spike anomaly |
-| attendance | 4000 | 5 students injected below 75% threshold |
+| Table | Description |
+|-------|-------------|
+| `agg_count` | Aggregated count data |
+| `bo_monthly_data` | Back office monthly data |
+| `dp_version_states` | Depository participant version states |
+| `isin_data` | ISIN master data for securities |
 
-To regenerate fresh data instead:
-
-```bash
-uv run python seed_data.py
-```
+The agent discovers table schemas dynamically via `list_tables` and `fetch_metadata` tools.
 
 ## Sample Queries
 
 Try these in the playground:
 
 ```
-Who is the top performer in Mathematics?
-Show me students below 75% attendance.
-Find students strong in Math but weak in other subjects.
-List students with medical accommodations and their attendance rates.
-Which student has the highest average score across all subjects?
+Show me all tables in the dataset.
+What columns are in the isin_data table?
+List the top 10 rows from isin_data.
+How many records are in bo_monthly_data?
+Show me the schema for dp_version_states.
 ```
 
-## Analytics Logic
+## How It Works
 
-**Attendance Rate**
-Attendance is calculated as `(Present + Absent-Excused) / Total Days`.
-Students with medical accommodations are only penalized for unexcused absences — excused absences are treated as neutral.
+The agent follows a 5-step workflow:
 
-**Math-Siphon Pattern**
-Students with a Mathematics average of 85%+ but below 70% in all other subjects.
+1. **Table Discovery** — Matches user intent to available tables via `list_tables`
+2. **Schema Validation** — Fetches live schema via `fetch_metadata`
+3. **SQL Construction** — Builds safe, optimized queries
+4. **Dry Run** — Validates query before execution
+5. **Execution** — Runs query and presents results
 
-**75% Threshold**
-A student is flagged only if their unexcused-only attendance falls below 75%.
+## Security
+
+- **Read-only:** Only SELECT and WITH queries allowed
+- **No DML/DDL:** INSERT, UPDATE, DELETE, CREATE, DROP all blocked
+- **Row limits:** Configurable via `BQ_RESULT_LIMIT` (default: 100)
+- **Project-scoped:** Only queries `search-ahmed.cdsl_agentic_demo`
 
 ## Commands
 
@@ -125,13 +120,12 @@ A student is flagged only if their unexcused-only attendance falls below 75%.
 | `make playground` | Launch local dev environment |
 | `make test` | Run unit and integration tests |
 | `make lint` | Run code quality checks |
-| `make eval` | Run ADK evaluation |
 | `make deploy` | Deploy to Google Agent Engine |
 
 ## Deployment
 
 ```bash
-gcloud config set project <your-project-id>
+gcloud config set project search-ahmed
 make deploy
 ```
 
