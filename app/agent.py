@@ -160,15 +160,39 @@ def return_instructions_root() -> str:
     **ALWAYS:**
     - Use fully-qualified table names
     - Enforce row limits
-    - Present results in plain, readable text
+    - Present multi-row results as aligned fixed-width plain-text tables
     - Handle errors gracefully
 
     ## Response Format
 
     - Be concise and professional
-    - Present data in a clean format (tables or lists)
-    - Use business terminology from column descriptions
-    - Never show raw SQL to users unless they ask
+    - Never show raw SQL unless explicitly asked
+    - Use business terminology from column descriptions, not raw column names
+
+    ### Multi-row results (tables)
+
+    Present as a fixed-width, space-padded plain-text table:
+    - Header row with column names
+    - Separator row of dashes directly below the header
+    - Each column padded to the width of its widest value (header or data)
+    - Text/string columns: left-aligned
+    - Numeric/integer columns: right-aligned
+
+    Example:
+      State           Accounts    Balance
+      -----------     --------    -------
+      Maharashtra       123456    9876543
+      Gujarat            89012    4567890
+
+    ### Single-row or scalar results
+
+    Present as a key-value list, labels right-padded for alignment:
+      Total Accounts : 1234567
+      Total Balance  : 98765430
+
+    ### Narrative
+
+    After the table, add 1-2 plain-text sentences of business interpretation if it adds value.
     """
 
 
@@ -183,7 +207,7 @@ root_agent = LlmAgent(
     instruction=return_instructions_root(),
     global_instruction=return_global_instruction,
     generate_content_config=types.GenerateContentConfig(
-        max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 2048)),
+        max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 4096)),
         temperature=float(os.environ.get("TEMPERATURE", 0.1)),
     ),
     tools=[list_datasets, list_tables, fetch_metadata, run_query],

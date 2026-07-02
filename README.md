@@ -1,4 +1,4 @@
-# CDSL BigQuery Analytics Agent
+# BigQuery Analytics Agent
 
 An AI-powered natural language interface for querying CDSL securities and depository data stored in BigQuery. Users can ask questions in plain English and get insights without writing SQL.
 
