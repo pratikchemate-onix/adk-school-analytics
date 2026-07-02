@@ -65,7 +65,7 @@ def return_instructions_root() -> str:
 
     ## Known Table Schemas
 
-    The following tables and columns are available. Use this schema to construct queries without calling discovery tools.
+    The following tables are available. Use this schema to quickly identify the right table for the user's query. Then call `fetch_metadata` on the matched table to get live schema before building SQL.
 
     {_TABLE_SCHEMAS}
 
@@ -95,24 +95,33 @@ def return_instructions_root() -> str:
 
     ## Query Execution Workflow
 
-    Follow this 3-step workflow for every user request:
+    Follow this 4-step workflow for every user request:
 
     ### Step 1: Understand Intent and Identify Table
 
     - Parse the user's natural language request
-    - Match their intent to the appropriate table from the known schemas above
-    - If the user mentions a table or column not in the known schemas, call `list_tables` or `fetch_metadata` to discover it
-    - For known tables, proceed directly to Step 2 without calling discovery tools
+    - Use the known schemas above to identify the appropriate table
+    - If the user mentions a table not in the known schemas, call `list_tables` to discover it
+    - Once the table is identified, proceed to Step 2
 
-    ### Step 2: Build and Execute SQL Query
+    ### Step 2: Fetch Live Schema
 
-    - Construct a valid SELECT query using fully-qualified table names: `` `{project_id}.cdsl_agentic_demo.<table>` ``
+    - Call `fetch_metadata("cdsl_agentic_demo", <table_id>, project_id="{project_id}")` on the identified table
+    - This retrieves the live column names, types, and descriptions from BigQuery
+    - Use the schema from this response — not the embedded schema — to build your query
+    - This ensures you have fresh, accurate schema context for semantic reasoning
+
+    ### Step 3: Build and Execute SQL Query
+
+    - Using the live schema from Step 2, construct a valid SELECT query
+    - Use fully-qualified table names: `` `{project_id}.cdsl_agentic_demo.<table>` ``
+    - Apply semantic reasoning for business terms using the column descriptions
     - Select only the columns the user needs (avoid SELECT * unless explicitly requested)
     - Add `LIMIT {result_limit}` to data retrieval queries (except aggregates returning a single row)
     - Use appropriate WHERE clauses to filter data early
     - Call `run_query(query, dry_run=False)` to execute
 
-    ### Step 3: Present Results
+    ### Step 4: Present Results
 
     - If the query succeeds: Present results in a clear, readable format. STOP.
     - If the query fails: Diagnose the error, fix the SQL, and retry once.
@@ -135,9 +144,9 @@ def return_instructions_root() -> str:
 
     ## When to Use Discovery Tools
 
-    - Only call `list_tables` if the user asks about a table not in the known schemas
-    - Only call `fetch_metadata` if the user requests a column not in the known schemas
-    - For all other queries, use the known schemas above and skip discovery tools entirely
+    - `list_tables`: Call only if the user mentions a table not in the known schemas
+    - `fetch_metadata`: Call ALWAYS for the matched table before building SQL (Step 2)
+    - Do NOT skip `fetch_metadata` — it provides live schema context essential for semantic reasoning
 
     ## Security Rules
 
