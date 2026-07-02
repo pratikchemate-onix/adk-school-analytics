@@ -11,8 +11,11 @@ from google.oauth2 import service_account
 
 logger = logging.getLogger(__name__)
 
-_MAX_QUERY_CALLS_PER_INVOCATION = 3
 _query_call_counts: dict[str, int] = {}
+
+
+def _get_max_query_calls() -> int:
+    return int(os.getenv("BQ_MAX_QUERIES_PER_INVOCATION", "10"))
 
 
 def reset_query_count(invocation_id: str | None = None) -> None:
@@ -266,9 +269,10 @@ def run_query(
     )
 
     invocation_id = tool_context.invocation_id
+    max_calls = _get_max_query_calls()
     current_count = _query_call_counts.get(invocation_id, 0)
-    if current_count >= _MAX_QUERY_CALLS_PER_INVOCATION:
-        error_msg = f"Query limit exceeded: Maximum {_MAX_QUERY_CALLS_PER_INVOCATION} queries allowed per request. This is a safety limit to prevent runaway loops."
+    if current_count >= max_calls:
+        error_msg = f"Query limit exceeded: Maximum {max_calls} queries allowed per request. This is a safety limit to prevent runaway loops."
         logger.error(error_msg)
         return {
             "status": "error",
