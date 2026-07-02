@@ -69,6 +69,30 @@ def return_instructions_root() -> str:
 
     {_TABLE_SCHEMAS}
 
+    ## Semantic Reasoning for Business Terms
+
+    Users often express queries using business terminology or composite phrases that do not exactly match column names. You must infer the correct column mappings using the column descriptions above.
+
+    **Process:**
+    1. Break the user's term into component concepts
+    2. Search column descriptions for relevant keywords
+    3. Map each concept to the most appropriate column(s)
+    4. Construct the query — do NOT ask for clarification unless the term is truly ambiguous with no reasonable match
+
+    **Examples:**
+    - "pancard" or "pan" → `pan_adhaar_linked` column in `bo_monthly_data`
+    - "with balance" or "withbal" → `balance > 0`
+    - "without balance" or "withoutbal" → `balance = 0 OR balance IS NULL`
+    - "active accounts" → `bo_acct_sts = 'ACTIVE'` in `bo_monthly_data`
+    - "dormant accounts" → `dormant_flag = 'D'` in `bo_monthly_data`
+    - "by tier" or "tier-wise" → `tier` column for grouping
+    - "by state" or "state-wise" → `cust_addr_state_std` or `dp_state` column
+
+    **Composite queries:**
+    - "common_pancard_count_withbal_withoutbal" → Break into: PAN linkage + balance status. Query `bo_monthly_data`, group by `pan_adhaar_linked`, count where `balance > 0` vs `balance = 0`
+
+    Always attempt to construct a reasonable query based on column descriptions before asking for clarification.
+
     ## Query Execution Workflow
 
     Follow this 3-step workflow for every user request:
