@@ -169,3 +169,80 @@ class TestFetchMetadata:
             assert result["status"] == "success"
             assert "columns" in result
             assert len(result["columns"]) == 2
+
+
+class TestQueryLimitFailsafe:
+    def test_blocks_after_max_queries(self):
+        from app.bq_tools import reset_query_count
+
+        reset_query_count()
+
+        mock_context = MagicMock()
+        mock_context.invocation_id = "test-invocation-123"
+
+        with patch("app.bq_tools._get_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_job = MagicMock()
+            mock_job.result.return_value = []
+            mock_client.query.return_value = mock_job
+            mock_get_client.return_value = mock_client
+
+            for i in range(3):
+                result = run_query(f"SELECT {i}", mock_context, dry_run=False)
+                assert result["status"] == "success", f"Query {i+1} should succeed"
+
+            result = run_query("SELECT 4", mock_context, dry_run=False)
+            assert result["status"] == "error"
+            assert "limit exceeded" in result["error_message"].lower()
+
+    def test_different_invocations_independent(self):
+        from app.bq_tools import reset_query_count
+
+        reset_query_count()
+
+        with patch("app.bq_tools._get_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_job = MagicMock()
+            mock_job.result.return_value = []
+            mock_client.query.return_value = mock_job
+            mock_get_client.return_value = mock_client
+
+            context1 = MagicMock()
+            context1.invocation_id = "invocation-1"
+            context2 = MagicMock()
+            context2.invocation_id = "invocation-2"
+
+            for i in range(3):
+                run_query(f"SELECT {i}", context1, dry_run=False)
+
+            result1 = run_query("SELECT overflow", context1, dry_run=False)
+            assert result1["status"] == "error"
+
+            result2 = run_query("SELECT new", context2, dry_run=False)
+            assert result2["status"] == "success"
+
+    def test_reset_clears_counts(self):
+        from app.bq_tools import reset_query_count
+
+        reset_query_count()
+
+        mock_context = MagicMock()
+        mock_context.invocation_id = "test-reset"
+
+        with patch("app.bq_tools._get_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_job = MagicMock()
+            mock_job.result.return_value = []
+            mock_client.query.return_value = mock_job
+            mock_get_client.return_value = mock_client
+
+            for i in range(3):
+                run_query(f"SELECT {i}", mock_context, dry_run=False)
+
+            result = run_query("SELECT overflow", mock_context, dry_run=False)
+            assert result["status"] == "error"
+
+            reset_query_count("test-reset")
+
+            result = run_query("SELECT after_reset", mock_context, dry_run=False)
+            assert result["status"] == "success"

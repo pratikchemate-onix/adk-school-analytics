@@ -11,6 +11,22 @@ from google.oauth2 import service_account
 
 logger = logging.getLogger(__name__)
 
+_MAX_QUERY_CALLS_PER_INVOCATION = 3
+_query_call_counts: dict[str, int] = {}
+
+
+def reset_query_count(invocation_id: str | None = None) -> None:
+    """Reset query count for a specific invocation or all invocations.
+
+    Args:
+        invocation_id: If provided, reset only this invocation. If None, reset all.
+    """
+    global _query_call_counts
+    if invocation_id:
+        _query_call_counts.pop(invocation_id, None)
+    else:
+        _query_call_counts.clear()
+
 
 def _get_client(tool_context: ToolContext) -> bigquery.Client:
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -248,6 +264,18 @@ def run_query(
         f"Running query (dry_run={dry_run})",
         extra={"invocation_id": tool_context.invocation_id},
     )
+
+    invocation_id = tool_context.invocation_id
+    current_count = _query_call_counts.get(invocation_id, 0)
+    if current_count >= _MAX_QUERY_CALLS_PER_INVOCATION:
+        error_msg = f"Query limit exceeded: Maximum {_MAX_QUERY_CALLS_PER_INVOCATION} queries allowed per request. This is a safety limit to prevent runaway loops."
+        logger.error(error_msg)
+        return {
+            "status": "error",
+            "error_message": error_msg,
+        }
+    _query_call_counts[invocation_id] = current_count + 1
+
     cleaned_query = query.strip().upper()
     if not (cleaned_query.startswith("SELECT") or cleaned_query.startswith("WITH")):
         error_msg = "Only SELECT queries are allowed to ensure read-only access."
