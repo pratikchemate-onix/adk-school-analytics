@@ -204,3 +204,5 @@ tools/a2a-inspector/
 # ADK local session/artifact storage
 **/.adk/
 .adk/
+
+adk-bq-agent-sa-key.json
