@@ -64,62 +64,6 @@ def _to_iso_date(value: Any) -> Any:
     return value
 
 
-def list_datasets(tool_context: ToolContext) -> dict[str, Any]:
-    """List all BigQuery datasets available across all configured projects.
-
-    Returns each dataset's project ID, dataset ID, and description. Use this
-    as the first discovery step to find which datasets exist across projects,
-    then call list_tables with both the project_id and dataset_id.
-
-    Projects are controlled by the ALLOWED_PROJECTS environment variable
-    (comma-separated list). Falls back to GOOGLE_CLOUD_PROJECT if unset.
-
-    Requires the bigquery.metadataViewer role on each project.
-
-    Returns:
-        A dictionary with "status" key ("success" or "error").
-        On success: includes "datasets" (list of dicts with "project_id",
-            "dataset_id", and "description" for each dataset).
-        On error: includes "error_message".
-    """
-    logger.info(
-        "Listing datasets across all configured projects",
-        extra={"invocation_id": tool_context.invocation_id},
-    )
-    primary_project = os.getenv("GOOGLE_CLOUD_PROJECT")
-    allowed_projects_str = os.getenv("ALLOWED_PROJECTS", "")
-    if allowed_projects_str:
-        projects = [p.strip() for p in allowed_projects_str.split(",") if p.strip()]
-    else:
-        projects = [primary_project]
-
-    try:
-        client = _get_client(tool_context)
-        datasets = []
-        for project in projects:
-            for dataset_item in client.list_datasets(project=project):
-                dataset = client.get_dataset(dataset_item.reference)
-                datasets.append(
-                    {
-                        "project_id": project,
-                        "dataset_id": dataset.dataset_id,
-                        "description": dataset.description or "",
-                    }
-                )
-        report = f"Found {len(datasets)} dataset(s) across {len(projects)} project(s)."
-        logger.info(report)
-        return {
-            "status": "success",
-            "datasets": datasets,
-        }
-    except Exception as e:
-        logger.error(f"Error listing datasets: {e}")
-        return {
-            "status": "error",
-            "error_message": str(e),
-        }
-
-
 def list_tables(
     dataset_id: str, tool_context: ToolContext, project_id: str = ""
 ) -> dict[str, Any]:
@@ -135,8 +79,7 @@ def list_tables(
         dataset_id: The BigQuery dataset ID to list tables from
             (e.g. "my_dataset").
         project_id: The GCP project ID containing the dataset. If not provided,
-            defaults to the primary configured project. Use the project_id
-            returned from list_datasets to query cross-project datasets.
+            defaults to the primary configured project.
 
     Returns:
         A dictionary with "status" key ("success" or "error").
@@ -196,7 +139,7 @@ def fetch_metadata(
         table_id: The BigQuery table ID (e.g. "my_table").
         project_id: The GCP project ID containing the table. If not provided,
             defaults to the primary configured project. Use the project_id
-            returned from list_datasets or list_tables to query cross-project
+            returned from list_tables to query cross-project
             tables.
 
     Returns:
