@@ -10,7 +10,7 @@ from google.adk.apps import App
 from google.cloud import bigquery
 from google.genai import types
 
-from .bq_tools import fetch_metadata, list_datasets, list_tables, run_query
+from .bq_tools import fetch_metadata, list_tables, run_query
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +219,7 @@ root_agent = LlmAgent(
         max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 4096)),
         temperature=float(os.environ.get("TEMPERATURE", 0.1)),
     ),
-    tools=[list_datasets, list_tables, fetch_metadata, run_query],
+    tools=[list_tables, fetch_metadata, run_query],
 )
 
 app = App(
