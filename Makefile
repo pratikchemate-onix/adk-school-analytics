@@ -28,16 +28,20 @@ playground:
 # ==============================================================================
 
 # Deploy the agent remotely
-# Usage: make deploy [AGENT_IDENTITY=true] [SECRETS="KEY=SECRET_ID,..."] - Set AGENT_IDENTITY=true to enable per-agent IAM identity (Preview)
+# Usage: make deploy [AGENT_IDENTITY=true] [SECRETS="KEY=SECRET_ID,..."]
+# Env vars are auto-loaded from .env file
+DEPLOY_ENV_VARS := $(shell grep -v '^\s*\#' .env | grep '=' | grep -v 'GOOGLE_APPLICATION_CREDENTIALS' | grep -v 'GOOGLE_CLOUD_PROJECT' | tr '\n' ',' | sed 's/,$$//')
+
 deploy:
-	# Export dependencies to requirements file using uv export.
-	(uv export --no-hashes --no-header --no-dev --no-emit-project --no-annotate > app/app_utils/.requirements.txt 2>/dev/null || \
-	uv export --no-hashes --no-header --no-dev --no-emit-project > app/app_utils/.requirements.txt) && \
+	# Export dependencies targeting Python 3.11 (Agent Engine runtime)
+	(uv export --no-hashes --no-header --no-dev --no-emit-project --no-annotate --python 3.11 > app/app_utils/.requirements.txt 2>/dev/null || \
+	uv export --no-hashes --no-header --no-dev --no-emit-project --python 3.11 > app/app_utils/.requirements.txt) && \
 	uv run -m app.app_utils.deploy \
 		--source-packages=./app \
 		--entrypoint-module=app.agent_engine_app \
 		--entrypoint-object=agent_engine \
 		--requirements-file=app/app_utils/.requirements.txt \
+		--set-env-vars="$(DEPLOY_ENV_VARS)" \
 		$(if $(AGENT_IDENTITY),--agent-identity) \
 		$(if $(filter command line,$(origin SECRETS)),--set-secrets="$(SECRETS)")
 

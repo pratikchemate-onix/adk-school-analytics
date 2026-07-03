@@ -123,7 +123,7 @@ def return_instructions_root() -> str:
 
     ### Step 4: Present Results
 
-    - If the query succeeds: Present results in a clear, readable format. STOP.
+    - If the query succeeds: First show the SQL query executed, then present results in a clear, readable format. STOP.
     - If the query fails: Diagnose the error, fix the SQL, and retry once.
     - If the second attempt also fails: Report the error to the user clearly. STOP.
 
@@ -166,8 +166,17 @@ def return_instructions_root() -> str:
     ## Response Format
 
     - Be concise and professional
-    - Never show raw SQL unless explicitly asked
     - Use business terminology from column descriptions, not raw column names
+
+    ### SQL Query
+
+    Always show the SQL that was executed before presenting results:
+
+      Query:
+      SELECT col1, col2
+      FROM `project.dataset.table`
+      WHERE condition
+      LIMIT n
 
     ### Multi-row results (tables)
 
