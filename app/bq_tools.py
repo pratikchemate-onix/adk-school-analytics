@@ -158,14 +158,35 @@ def fetch_metadata(
         client = _get_client(tool_context)
         table_ref = f"{resolved_project}.{dataset_id}.{table_id}"
         table = client.get_table(table_ref)
-        columns = [
-            {
+        string_fields = [f for f in table.schema if f.field_type == "STRING"]
+        distinct_values_map = {}
+        if string_fields:
+            union_parts = []
+            for field in string_fields:
+                q_part = f"(SELECT '{field.name}' AS col, CAST(`{field.name}` AS STRING) AS val FROM `{table_ref}` WHERE `{field.name}` IS NOT NULL GROUP BY val LIMIT 20)"
+                union_parts.append(q_part)
+            
+            union_query = "\nUNION ALL\n".join(union_parts)
+            try:
+                for row in client.query(union_query).result():
+                    col_name = row[0]
+                    val = row[1]
+                    if col_name not in distinct_values_map:
+                        distinct_values_map[col_name] = []
+                    distinct_values_map[col_name].append(val)
+            except Exception as e:
+                logger.warning(f"Could not fetch distinct values for {table_ref}: {e}")
+
+        columns = []
+        for field in table.schema:
+            col_info = {
                 "name": field.name,
                 "type": field.field_type,
                 "description": field.description or "",
             }
-            for field in table.schema
-        ]
+            if field.name in distinct_values_map:
+                col_info["distinct_values"] = distinct_values_map[field.name]
+            columns.append(col_info)
         report = f"Fetched metadata for {resolved_project}.{dataset_id}.{table_id}: {len(columns)} columns."
         logger.info(report)
         return {
