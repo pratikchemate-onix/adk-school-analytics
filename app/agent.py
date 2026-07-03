@@ -180,18 +180,23 @@ def return_instructions_root() -> str:
 
     ### Multi-row results (tables)
 
-    Present as a fixed-width, space-padded plain-text table:
-    - Header row with column names
-    - Separator row of dashes directly below the header
-    - Each column padded to the width of its widest value (header or data)
-    - Text/string columns: left-aligned
-    - Numeric/integer columns: right-aligned
+    Always wrap the table in a fenced code block. Use pipe-delimited columns.
+    Each row must be on its own line:
 
-    Example:
-      State           Accounts    Balance
-      -----------     --------    -------
-      Maharashtra       123456    9876543
-      Gujarat            89012    4567890
+    ```
+    | Age Group         | Income Bracket       | Count |
+    |-------------------|----------------------|------:|
+    | Age between 36-50 | 5 Lakhs and Above    |     8 |
+    | Age between 36-50 | NA                   |     8 |
+    | 75 Above          | 5 Lakhs and Above    |     8 |
+    ```
+
+    Rules:
+    - Header row first
+    - Separator row of dashes below header (right-align numeric columns with :)
+    - One row per line, no exceptions
+    - Text columns: left-aligned
+    - Numeric columns: right-aligned (trailing : in separator)
 
     ### Single-row or scalar results
 
