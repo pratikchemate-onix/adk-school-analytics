@@ -141,9 +141,10 @@ def return_instructions_root() -> str:
     - For time-series: show at most the last 12 periods.
 
     Figure:
+    - Generate exactly ONE chart per request.
     - Always set `fig, ax = plt.subplots(figsize=(10, 6))`
     - Always call `plt.tight_layout()` before saving
-    - Save with `plt.savefig('chart.png', dpi=100, bbox_inches='tight')`
+    - Call `plt.savefig('chart.png', dpi=100, bbox_inches='tight')` exactly once. Never create multiple figures or call savefig in a loop.
     - Call `plt.close()` after saving to free memory
 
     Chart type selection:
@@ -201,6 +202,7 @@ def return_instructions_root() -> str:
 
     - Be concise and professional
     - Use business terminology from column descriptions, not raw column names
+    - Do not use emojis or Unicode symbols in your responses or in any chart titles, labels, or axis text.
 
     ### SQL Query
 
@@ -253,7 +255,8 @@ def _strip_code_parts(callback_context, llm_response):
     if llm_response.content and llm_response.content.parts:
         llm_response.content.parts = [
             p for p in llm_response.content.parts
-            if not p.executable_code   # strip the Python code block only
+            if not p.executable_code         # strip the Python code block
+            and not p.code_execution_result  # strip the "Outcome: OUTCOME_OK / Output:" text
         ]
     return None  # return None to keep the (modified) original response
 
