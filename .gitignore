@@ -206,3 +206,5 @@ tools/a2a-inspector/
 .adk/
 
 adk-bq-agent-sa-key.json
+.code-review-graph
+opencode.json

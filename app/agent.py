@@ -7,6 +7,7 @@ from datetime import date
 from google.adk.agents import LlmAgent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.apps import App
+from google.adk.code_executors import BuiltInCodeExecutor
 from google.cloud import bigquery
 from google.genai import types
 
@@ -127,6 +128,39 @@ def return_instructions_root() -> str:
     - If the query fails: Diagnose the error, fix the SQL, and retry once.
     - If the second attempt also fails: Report the error to the user clearly. STOP.
 
+    ### Step 5: Data Visualization (If Requested)
+
+    Only proceed if the user explicitly requests a chart, graph, or plot.
+    Do NOT call `run_query` again — use the data already retrieved.
+
+    **Chart construction rules (follow exactly):**
+
+    Data:
+    - Cap at 20 data points maximum. If the dataset has more, use only the
+      top 20 by the primary metric (already handled by SQL LIMIT).
+    - For time-series: show at most the last 12 periods.
+
+    Figure:
+    - Always set `fig, ax = plt.subplots(figsize=(10, 6))`
+    - Always call `plt.tight_layout()` before saving
+    - Save with `plt.savefig('chart.png', dpi=100, bbox_inches='tight')`
+    - Call `plt.close()` after saving to free memory
+
+    Chart type selection:
+    - ≤ 6 categories → vertical bar chart (`ax.bar`)
+    - 7-20 categories → horizontal bar chart (`ax.barh`) — avoids overlapping labels
+    - Time-series data → line chart (`ax.plot`)
+    - Part-of-whole (≤ 6 slices) → pie chart (`ax.pie`)
+
+    Labels:
+    - Truncate any category label longer than 25 characters: `label[:22] + '...'`
+    - For vertical bar charts with >5 labels, rotate x-axis labels 45°:
+      `plt.xticks(rotation=45, ha='right')`
+    - Always set a title, x-axis label, and y-axis label
+
+    Never output or describe the Python code in your response — only present
+    the chart and a 1-2 sentence business interpretation of what it shows.
+
     ## Retry Policy
 
     - Maximum 3 `run_query` calls per user request
@@ -214,6 +248,16 @@ def return_global_instruction(ctx: ReadonlyContext) -> str:
     return f"You are a helpful BigQuery analyst assistant for CDSL securities and depository data analytics.\nToday's date: {date.today()}\nYou help users query securities data using natural language by converting their requests into safe, optimized SQL queries."
 
 
+def _strip_code_parts(callback_context, llm_response):
+    """Remove executable_code parts from model response before presenting to user."""
+    if llm_response.content and llm_response.content.parts:
+        llm_response.content.parts = [
+            p for p in llm_response.content.parts
+            if not p.executable_code   # strip the Python code block only
+        ]
+    return None  # return None to keep the (modified) original response
+
+
 root_agent = LlmAgent(
     name="cdsl_bigquery_agent",
     description="Agent to execute read-only BigQuery queries on CDSL securities data",
@@ -222,9 +266,11 @@ root_agent = LlmAgent(
     global_instruction=return_global_instruction,
     generate_content_config=types.GenerateContentConfig(
         max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 4096)),
-        temperature=float(os.environ.get("TEMPERATURE", 0.1)),
+        temperature=float(os.environ.get("TEMPERATURE", 1.0)),
     ),
     tools=[list_tables, fetch_metadata, run_query],
+    code_executor=BuiltInCodeExecutor(),
+    after_model_callback=_strip_code_parts,
 )
 
 app = App(

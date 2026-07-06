@@ -17,7 +17,7 @@ from typing import Any
 
 import vertexai
 from dotenv import load_dotenv
-from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
+from google.adk.artifacts import InMemoryArtifactService
 from google.cloud import logging as google_cloud_logging
 from vertexai.agent_engines.templates.adk import AdkApp
 
@@ -49,7 +49,7 @@ class AgentEngineApp(AdkApp):
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
         operations = super().register_operations()
-        operations[""] = operations.get("", []) + ["register_feedback"]
+        operations[""] = [*operations.get("", []), "register_feedback"]
         return operations
 
 
@@ -57,9 +57,5 @@ gemini_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
 logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
 agent_engine = AgentEngineApp(
     app=adk_app,
-    artifact_service_builder=lambda: (
-        GcsArtifactService(bucket_name=logs_bucket_name)
-        if logs_bucket_name
-        else InMemoryArtifactService()
-    ),
+    artifact_service_builder=lambda: InMemoryArtifactService(),
 )

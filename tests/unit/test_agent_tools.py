@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from app.bq_tools import fetch_metadata, list_datasets, list_tables, run_query
+from app.bq_tools import fetch_metadata, list_tables, run_query
 
 
 class TestRunQuerySecurity:
@@ -87,32 +87,11 @@ class TestRunQueryDryRun:
             mock_job.total_bytes_processed = 1024 * 1024 * 100
             mock_client.query.return_value = mock_job
             mock_get_client.return_value = mock_client
-
+    
             result = run_query("SELECT * FROM isin_data", mock_context, dry_run=True)
             assert result["status"] == "success"
             assert "bytes_processed" in result
             assert "estimated_cost_usd" in result
-
-
-class TestListDatasets:
-    def test_list_datasets_success(self):
-        mock_context = MagicMock()
-        with patch("app.bq_tools._get_client") as mock_get_client:
-            mock_client = MagicMock()
-
-            mock_dataset_item = MagicMock()
-            mock_dataset_item.reference = MagicMock()
-            mock_dataset = MagicMock()
-            mock_dataset.dataset_id = "cdsl_agentic_demo"
-            mock_dataset.description = "CDSL securities dataset"
-
-            mock_client.list_datasets.return_value = [mock_dataset_item]
-            mock_client.get_dataset.return_value = mock_dataset
-            mock_get_client.return_value = mock_client
-
-            result = list_datasets(mock_context)
-            assert result["status"] == "success"
-            assert "datasets" in result
 
 
 class TestListTables:
