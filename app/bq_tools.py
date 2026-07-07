@@ -3,6 +3,7 @@
 import datetime
 import logging
 import os
+import time
 from typing import Any
 
 from google.adk.tools import ToolContext
@@ -12,6 +13,9 @@ from google.oauth2 import service_account
 logger = logging.getLogger(__name__)
 
 _query_call_counts: dict[str, int] = {}
+_bq_client: bigquery.Client | None = None
+_metadata_cache: dict[str, tuple[dict[str, Any], float]] = {}
+_METADATA_CACHE_TTL = 600  # 10 minutes
 
 
 def _get_max_query_calls() -> int:
@@ -32,6 +36,10 @@ def reset_query_count(invocation_id: str | None = None) -> None:
 
 
 def _get_client(tool_context: ToolContext) -> bigquery.Client:
+    global _bq_client
+    if _bq_client is not None:
+        return _bq_client
+
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
     logger.info(f"Getting BigQuery client for project: {project_id}")
     try:
@@ -49,7 +57,8 @@ def _get_client(tool_context: ToolContext) -> bigquery.Client:
             logger.info(
                 f"Successfully created BigQuery client with ADC for project: {project_id}"
             )
-        return client
+        _bq_client = client
+        return _bq_client
     except Exception as e:
         error_msg = (
             f"Failed to create BigQuery client: {e}. Ensure credentials are configured."
@@ -150,13 +159,21 @@ def fetch_metadata(
         On error: includes "error_message".
     """
     resolved_project = project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
+    cache_key = f"{resolved_project}.{dataset_id}.{table_id}"
+
+    if cache_key in _metadata_cache:
+        cached_result, timestamp = _metadata_cache[cache_key]
+        if time.time() - timestamp < _METADATA_CACHE_TTL:
+            logger.info(f"Using cached metadata for {cache_key}")
+            return cached_result
+
     logger.info(
-        f"Fetching metadata for {resolved_project}.{dataset_id}.{table_id}",
+        f"Fetching metadata for {cache_key}",
         extra={"invocation_id": tool_context.invocation_id},
     )
     try:
         client = _get_client(tool_context)
-        table_ref = f"{resolved_project}.{dataset_id}.{table_id}"
+        table_ref = cache_key
         table = client.get_table(table_ref)
         string_fields = [f for f in table.schema if f.field_type == "STRING"]
         distinct_values_map = {}
@@ -189,7 +206,7 @@ def fetch_metadata(
             columns.append(col_info)
         report = f"Fetched metadata for {resolved_project}.{dataset_id}.{table_id}: {len(columns)} columns."
         logger.info(report)
-        return {
+        result = {
             "status": "success",
             "project_id": resolved_project,
             "dataset_id": dataset_id,
@@ -199,6 +216,8 @@ def fetch_metadata(
             "num_bytes": table.num_bytes,
             "columns": columns,
         }
+        _metadata_cache[cache_key] = (result, time.time())
+        return result
     except Exception as e:
         logger.error(
             f"Error fetching metadata for {resolved_project}.{dataset_id}.{table_id}: {e}"
@@ -273,7 +292,7 @@ def run_query(
                 "estimated_cost_usd": round(estimated_cost_usd, 4),
             }
         query_job = client.query(query)
-        rows = list(query_job.result())
+        rows = list(query_job.result(timeout=30))
         limit = int(os.getenv("BQ_RESULT_LIMIT", 100))
         results = [{k: _to_iso_date(v) for k, v in dict(row).items()} for row in rows]
         report = f"Query executed successfully. Returned {len(rows)} rows."
