@@ -124,7 +124,12 @@ def return_instructions_root() -> str:
 
     ### Step 4: Present Results
 
-    - If the query succeeds: First show the SQL query executed, then present results in a clear, readable format. STOP.
+    - If the query succeeds: First show the SQL query executed, then present results in a clear, readable format. Then add a chartability notice:
+      * If the result has 2+ rows, at least one numeric column, and at least one categorical or date column → append:
+        "This result can be visualized — ask me for a chart to see a graphical breakdown."
+      * Otherwise → append:
+        "A chart cannot be generated for this result — [specific reason]. To get a chartable result, try: [one concrete query-specific suggestion]."
+      STOP.
     - If the query fails: Diagnose the error, fix the SQL, and retry once.
     - If the second attempt also fails: Report the error to the user clearly. STOP.
 
@@ -133,7 +138,33 @@ def return_instructions_root() -> str:
     Only proceed if the user explicitly requests a chart, graph, or plot.
     Do NOT call `run_query` again — use the data already retrieved.
 
-    **Chart construction rules (follow exactly):**
+    **Step 5a: Chartability check — evaluate BEFORE writing any code**
+
+    A chart can only be generated when ALL THREE of the following are true:
+      1. The result contains 2 or more rows.
+      2. The result contains at least one numeric column (e.g., COUNT, SUM, AVG,
+         any INTEGER or FLOAT column).
+      3. The result contains at least one categorical or date column to use as axis labels.
+
+    If ANY condition fails, respond with this exact structure:
+      "A chart cannot be generated for this result — [specific reason, e.g.,
+       'the result is a single scalar value with no categorical dimension'].
+       The data is presented in tabular form above.
+
+       To get a chartable result, you could try: [one concrete, query-specific
+       suggestion that would produce a chartable output, e.g., 'adding GROUP BY
+       cust_addr_state_std to count accounts per state' or 'grouping by month to
+       show a time-series of account openings']."
+
+    Then STOP. Do not generate any code.
+
+    Common unchartable patterns:
+      - SELECT COUNT(*) with no GROUP BY → single number, no axis
+      - Single-row lookups (WHERE id = '...') → nothing to compare
+      - Results with only text/string columns → no quantitative dimension
+      - Results where all rows share the same category value → no variation to plot
+
+    **Step 5b: Chart construction rules (follow exactly only if Step 5a passes):**
 
     Data:
     - Cap at 20 data points maximum. If the dataset has more, use only the
@@ -204,7 +235,7 @@ def return_instructions_root() -> str:
     - Use business terminology from column descriptions, not raw column names
     - Do not use emojis or Unicode symbols in your responses or in any chart titles, labels, or axis text.
 
-    ### SQL Query
+    (on new line) ### SQL Query
 
     Always show the SQL that was executed before presenting results:
 
@@ -242,7 +273,7 @@ def return_instructions_root() -> str:
 
     ### Narrative
 
-    After the table, add 1-2 plain-text sentences of business interpretation if it adds value.
+    After the table, add 3-4 plain-text sentences of business interpretation if it adds value.
     """
 
 
@@ -251,14 +282,46 @@ def return_global_instruction(ctx: ReadonlyContext) -> str:
 
 
 def _strip_code_parts(callback_context, llm_response):
-    """Remove executable_code parts from model response before presenting to user."""
-    if llm_response.content and llm_response.content.parts:
-        llm_response.content.parts = [
-            p for p in llm_response.content.parts
-            if not p.executable_code         # strip the Python code block
-            and not p.code_execution_result  # strip the "Outcome: OUTCOME_OK / Output:" text
-        ]
-    return None  # return None to keep the (modified) original response
+    """Clean up model response parts before presenting to user:
+    - Strip executable_code parts (Python code blocks)
+    - Strip code_execution_result parts (Outcome/Output lines)
+    - Deduplicate inline_data image parts (prevent duplicate 'Saved as artifact' lines)
+    - Ensure the first text part after an image starts on a new line
+    """
+    if not (llm_response.content and llm_response.content.parts):
+        return None
+
+    # Pass 1: find the index of the LAST image part in the original list.
+    # Gemini produces two inline_data parts per chart — the last one is
+    # the fully rendered image; the first is a blank/incomplete render.
+    last_image_orig_idx = None
+    for i, p in enumerate(llm_response.content.parts):
+        if p.inline_data and p.inline_data.mime_type.startswith("image/"):
+            last_image_orig_idx = i
+
+    # Pass 2: build the cleaned parts list.
+    new_parts = []
+    last_image_new_idx = None
+    for i, p in enumerate(llm_response.content.parts):
+        if p.executable_code or p.code_execution_result:
+            continue  # strip code blocks and execution results
+        if p.inline_data and p.inline_data.mime_type.startswith("image/"):
+            if i != last_image_orig_idx:
+                continue  # skip all images except the last (fully rendered) one
+            last_image_new_idx = len(new_parts)
+        new_parts.append(p)
+
+    # _run_post_processor replaces inline_data with "Saved as artifact: ..."
+    # with no trailing newline. Prepend \n\n to the next text part so that
+    # subsequent content starts on a new line.
+    if last_image_new_idx is not None:
+        for i in range(last_image_new_idx + 1, len(new_parts)):
+            if new_parts[i].text:
+                new_parts[i].text = "\n\n" + new_parts[i].text
+                break
+
+    llm_response.content.parts = new_parts
+    return None
 
 
 root_agent = LlmAgent(

@@ -165,7 +165,7 @@ def fetch_metadata(
             for field in string_fields:
                 q_part = f"(SELECT '{field.name}' AS col, CAST(`{field.name}` AS STRING) AS val FROM `{table_ref}` WHERE `{field.name}` IS NOT NULL GROUP BY val LIMIT 20)"
                 union_parts.append(q_part)
-            
+
             union_query = "\nUNION ALL\n".join(union_parts)
             try:
                 for row in client.query(union_query).result():
