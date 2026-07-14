@@ -23,6 +23,14 @@ playground:
 	@echo "==============================================================================="
 	uv run adk web . --port 8501 --reload_agents
 
+# Start ADK API server for frontend consumption
+api-server:
+	@echo "==============================================================================="
+	@echo "| Starting ADK API server on port 8000...                                     |"
+	@echo "| Frontend should connect to: http://localhost:8000                           |"
+	@echo "==============================================================================="
+	uv run adk api_server . --port 8000
+
 # ==============================================================================
 # Backend Deployment Targets
 # ==============================================================================

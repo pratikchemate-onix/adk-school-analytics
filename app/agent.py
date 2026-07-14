@@ -7,7 +7,6 @@ from datetime import date
 from google.adk.agents import LlmAgent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.apps import App
-from google.adk.code_executors import BuiltInCodeExecutor
 from google.cloud import bigquery
 from google.genai import types
 
@@ -191,7 +190,7 @@ def return_instructions_root() -> str:
 
     - If the query succeeds: First show the SQL query executed, then present results in a clear, readable format. Then add a chartability notice:
       * If the result has 2+ rows, at least one numeric column, and at least one categorical or date column → append:
-        "This result can be visualized — ask me for a chart to see a graphical breakdown."
+        "This result can be visualized — ask me for a chart and I will generate an interactive chart in the UI."
       * Otherwise → append:
         "A chart cannot be generated for this result — [specific reason]. To get a chartable result, try: [one concrete query-specific suggestion]."
       STOP.
@@ -201,62 +200,75 @@ def return_instructions_root() -> str:
     ### Step 5: Data Visualization (If Requested)
 
     Only proceed if the user explicitly requests a chart, graph, or plot.
-    Do NOT call `run_query` again — use the data already retrieved.
+    Do NOT call run_query again — use the data already retrieved in Step 4.
 
-    **Step 5a: Chartability check — evaluate BEFORE writing any code**
+    **Step 5a: Chartability check — evaluate BEFORE generating any spec**
 
-    A chart can only be generated when ALL THREE of the following are true:
+    A chart can only be generated when ALL THREE conditions are true:
       1. The result contains 2 or more rows.
-      2. The result contains at least one numeric column (e.g., COUNT, SUM, AVG,
-         any INTEGER or FLOAT column).
-      3. The result contains at least one categorical or date column to use as axis labels.
+      2. At least one numeric column (COUNT, SUM, AVG, INTEGER, FLOAT).
+      3. At least one categorical or date column for axis labels.
 
-    If ANY condition fails, respond with this exact structure:
-      "A chart cannot be generated for this result — [specific reason, e.g.,
-       'the result is a single scalar value with no categorical dimension'].
-       The data is presented in tabular form above.
-
-       To get a chartable result, you could try: [one concrete, query-specific
-       suggestion that would produce a chartable output, e.g., 'adding GROUP BY
-       cust_addr_state_std to count accounts per state' or 'grouping by month to
-       show a time-series of account openings']."
-
-    Then STOP. Do not generate any code.
+    If ANY condition fails:
+      - Explain why the result cannot be charted
+      - Suggest one concrete query modification that would produce a chartable result
+      - STOP. Do not generate a chart spec.
 
     Common unchartable patterns:
       - SELECT COUNT(*) with no GROUP BY → single number, no axis
       - Single-row lookups (WHERE id = '...') → nothing to compare
       - Results with only text/string columns → no quantitative dimension
-      - Results where all rows share the same category value → no variation to plot
+      - All rows share the same category value → no variation to plot
 
-    **Step 5b: Chart construction rules (follow exactly only if Step 5a passes):**
+    **Step 5b: Generate chart specification (only if Step 5a passes)**
 
-    Data:
-    - Cap at 20 data points maximum. If the dataset has more, use only the
-      top 20 by the primary metric (already handled by SQL LIMIT).
-    - For time-series: show at most the last 12 periods.
+    Output EXACTLY the JSON structure below inside a ```chart code fence.
+    Do NOT output any other code blocks. Do NOT explain the JSON. Just output it.
 
-    Figure:
-    - Generate exactly ONE chart per request.
-    - Always set `fig, ax = plt.subplots(figsize=(10, 6))`
-    - Always call `plt.tight_layout()` before saving
-    - Call `plt.savefig('chart.png', dpi=100, bbox_inches='tight')` exactly once. Never create multiple figures or call savefig in a loop.
-    - Call `plt.close()` after saving to free memory
+    Chart type selection rules:
+      - Comparing values across categories (≤ 20 categories)  → type: "bar"
+      - Trend over time (date/time on x-axis)                 → type: "line"
+      - Part-of-whole distribution (≤ 6 slices)              → type: "pie"
+      - Cumulative trend with filled area                     → type: "area"
 
-    Chart type selection:
-    - ≤ 6 categories → vertical bar chart (`ax.bar`)
-    - 7-20 categories → horizontal bar chart (`ax.barh`) — avoids overlapping labels
-    - Time-series data → line chart (`ax.plot`)
-    - Part-of-whole (≤ 6 slices) → pie chart (`ax.pie`)
+    **For bar / line / area charts, output exactly:**
 
-    Labels:
-    - Truncate any category label longer than 25 characters: `label[:22] + '...'`
-    - For vertical bar charts with >5 labels, rotate x-axis labels 45°:
-      `plt.xticks(rotation=45, ha='right')`
-    - Always set a title, x-axis label, and y-axis label
+    ```chart
+    {{
+      "type": "bar",
+      "title": "Human-readable chart title describing the data",
+      "x_key": "exact_column_name_for_x_axis",
+      "y_keys": ["metric_column_1"],
+      "data": [
+        {{ "x_axis_column": "value1", "metric_column_1": 123 }},
+        {{ "x_axis_column": "value2", "metric_column_1": 456 }}
+      ]
+    }}
+    ```
 
-    Never output or describe the Python code in your response — only present
-    the chart and a 1-2 sentence business interpretation of what it shows.
+    **For pie charts, output exactly:**
+
+    ```chart
+    {{
+      "type": "pie",
+      "title": "Human-readable chart title",
+      "name_key": "category_column_name",
+      "value_key": "numeric_column_name",
+      "data": [
+        {{ "category_column": "Category A", "numeric_column": 100 }},
+        {{ "category_column": "Category B", "numeric_column": 75 }}
+      ]
+    }}
+    ```
+
+    **Critical rules:**
+      - Use exact column names from the query result (no renaming)
+      - Cap data at 20 rows for bar/line/area charts
+      - Cap data at 6 rows for pie charts
+      - y_keys may contain multiple columns for grouped comparison charts
+      - After the ```chart block, add 1-2 sentences of business interpretation
+      - Do NOT include markdown, Python code, or any other content inside the ```chart block
+      - The JSON must be valid (no trailing commas, proper quoting)
 
     ## Multi-Table SQL Examples
 
@@ -456,48 +468,6 @@ def return_global_instruction(ctx: ReadonlyContext) -> str:
     return f"You are a helpful BigQuery analyst assistant for CDSL securities and depository data analytics.\nToday's date: {date.today()}\nYou help users query securities data using natural language by converting their requests into safe, optimized SQL queries."
 
 
-def _strip_code_parts(callback_context, llm_response):
-    """Clean up model response parts before presenting to user:
-    - Strip executable_code parts (Python code blocks)
-    - Strip code_execution_result parts (Outcome/Output lines)
-    - Deduplicate inline_data image parts (prevent duplicate 'Saved as artifact' lines)
-    - Ensure the first text part after an image starts on a new line
-    """
-    if not (llm_response.content and llm_response.content.parts):
-        return None
-
-    # Pass 1: find the index of the LAST image part in the original list.
-    # Gemini produces two inline_data parts per chart — the last one is
-    # the fully rendered image; the first is a blank/incomplete render.
-    last_image_orig_idx = None
-    for i, p in enumerate(llm_response.content.parts):
-        if p.inline_data and p.inline_data.mime_type and p.inline_data.mime_type.startswith("image/"):
-            last_image_orig_idx = i
-
-    # Pass 2: build the cleaned parts list.
-    new_parts = []
-    last_image_new_idx = None
-    for i, p in enumerate(llm_response.content.parts):
-        if p.executable_code or p.code_execution_result:
-            continue  # strip code blocks and execution results
-        if p.inline_data and p.inline_data.mime_type and p.inline_data.mime_type.startswith("image/"):
-            if i != last_image_orig_idx:
-                continue  # skip all images except the last (fully rendered) one
-            last_image_new_idx = len(new_parts)
-        new_parts.append(p)
-
-    # _run_post_processor replaces inline_data with "Saved as artifact: ..."
-    # with no trailing newline. Prepend \n\n to the next text part so that
-    # subsequent content starts on a new line.
-    if last_image_new_idx is not None:
-        for i in range(last_image_new_idx + 1, len(new_parts)):
-            if new_parts[i].text:
-                new_parts[i].text = "\n\n" + new_parts[i].text
-                break
-
-    llm_response.content.parts = new_parts
-    return None
-
 
 root_agent = LlmAgent(
     name="cdsl_bigquery_agent",
@@ -509,9 +479,7 @@ root_agent = LlmAgent(
         max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 4096)),
         temperature=float(os.environ.get("TEMPERATURE", 1.0)),
     ),
-    tools=[list_tables, fetch_metadata, get_table_relationships, run_query],
-    code_executor=BuiltInCodeExecutor(),
-    after_model_callback=_strip_code_parts,
+    tools=[list_tables, fetch_metadata, get_table_relationships, run_query]
 )
 
 app = App(
