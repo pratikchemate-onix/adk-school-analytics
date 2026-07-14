@@ -10,36 +10,55 @@ export default function ChatWindow({ messages, isLoading }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  return (
-    <div
-      style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '24px',
-        background: '#fafafa',
-      }}
-    >
-      {messages.length === 0 && (
-        <div style={{ textAlign: 'center', color: '#666', marginTop: '100px' }}>
-          <p style={{ fontSize: '18px', marginBottom: '8px' }}>
-            Ask a question about CDSL securities data
-          </p>
-          <p style={{ fontSize: '14px' }}>
-            Try: &quot;Show dormant accounts by branch state as a chart&quot;
-          </p>
-        </div>
-      )}
+  const suggestions = [
+    'Show dormant accounts by branch state as a chart',
+    'Top 10 ISINs by holding value',
+    'Branch-wise account distribution',
+  ]
 
+  if (messages.length === 0) {
+    return (
+      <div className="chat-area">
+        <div className="chat-empty">
+          <h2>CDSL Analytics Assistant</h2>
+          <p>Ask questions about CDSL securities data in natural language. I'll query BigQuery and visualize the results.</p>
+          <div className="suggestion-chips">
+            {suggestions.map((suggestion, idx) => (
+              <button
+                key={idx}
+                className="suggestion-chip"
+                onClick={() => {
+                  const event = new CustomEvent('suggestion-click', {
+                    detail: suggestion,
+                  })
+                  window.dispatchEvent(event)
+                }}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div ref={bottomRef} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="chat-area">
       {messages.map((msg, idx) => (
         <MessageBubble key={idx} role={msg.role} text={msg.text} />
       ))}
-
       {isLoading && messages[messages.length - 1]?.role !== 'agent' && (
-        <div style={{ textAlign: 'center', padding: '16px', color: '#666' }}>
-          Thinking...
+        <div className="loading-indicator">
+          <div className="loading-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <span>Thinking...</span>
         </div>
       )}
-
       <div ref={bottomRef} />
     </div>
   )

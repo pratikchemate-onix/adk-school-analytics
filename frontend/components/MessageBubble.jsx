@@ -51,19 +51,14 @@ export default function MessageBubble({ role, text }) {
     switch (part.type) {
       case 'chart':
         return (
-          <div key={idx} style={{ margin: '16px 0' }}>
+          <div key={idx} className="chart-container">
+            {part.spec.title && <div className="chart-title">{part.spec.title}</div>}
             <ChartRenderer spec={part.spec} />
           </div>
         )
       case 'text':
         return (
-          <div
-            key={idx}
-            style={{
-              whiteSpace: 'pre-wrap',
-              lineHeight: '1.6',
-            }}
-          >
+          <div key={idx} style={{ whiteSpace: 'pre-wrap' }}>
             {part.content}
           </div>
         )
@@ -73,25 +68,18 @@ export default function MessageBubble({ role, text }) {
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: isUser ? 'flex-end' : 'flex-start',
-        marginBottom: '16px',
-      }}
-    >
-      <div
-        style={{
-          maxWidth: '80%',
-          padding: '12px 16px',
-          borderRadius: '12px',
-          background: isUser ? '#0066cc' : '#fff',
-          color: isUser ? '#fff' : '#333',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-        }}
-      >
-        {parseContent(text).map(renderPart)}
-      </div>
+    <div className={`message-container ${role}`}>
+      {!isUser && (
+        <div className="message-avatar" style={{ background: 'var(--accent-purple)' }}>
+          AI
+        </div>
+      )}
+      <div className="message-content">{parseContent(text).map(renderPart)}</div>
+      {isUser && (
+        <div className="message-avatar" style={{ background: 'var(--accent-green)' }}>
+          U
+        </div>
+      )}
     </div>
   )
 }

@@ -1,16 +1,14 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'CDSL Analytics',
-  description: 'CDSL securities analytics with natural language queries',
+  title: 'CDSL Analytics - BigQuery NL2SQL Agent',
+  description: 'Natural language analytics for CDSL securities data powered by BigQuery',
 }
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0, fontFamily: 'system-ui, sans-serif' }}>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   )
 }
