@@ -110,3 +110,17 @@ lint:
 # Optional env vars: GEMINI_DISPLAY_NAME, GEMINI_DESCRIPTION, GEMINI_TOOL_DESCRIPTION, AGENT_ENGINE_ID
 register-gemini-enterprise:
 	@uvx agent-starter-pack@0.41.3 register-gemini-enterprise
+
+# ==============================================================================
+# Frontend Targets
+# ==============================================================================
+
+frontend-install:
+	cd frontend && npm install
+
+frontend-dev:
+	@echo "==============================================================================="
+	@echo "| Starting Next.js frontend on port 3000...                                   |"
+	@echo "| Make sure ADK API server is running: make api-server                        |"
+	@echo "==============================================================================="
+	cd frontend && npm run dev
