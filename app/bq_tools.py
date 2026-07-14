@@ -309,3 +309,210 @@ def run_query(
             "status": "error",
             "error_message": str(e),
         }
+
+
+# ---------------------------------------------------------------------------
+# Table Relationship Registry
+# ---------------------------------------------------------------------------
+
+_TABLE_RELATIONSHIPS: list[dict[str, Any]] = [
+    {
+        "from_table": "dp_hst",
+        "from_column": "dp_hst_br_id",
+        "to_table": "dp_version_states",
+        "to_column": "dp_id",
+        "join_type": "INNER JOIN",
+        "join_expression": "dp_hst.dp_hst_br_id = dp_version_states.dp_id",
+        "description": (
+            "Each transaction row links to the DP branch that processed it. "
+            "dp_hst_br_id is the FK; dp_version_states.dp_id is the PK."
+        ),
+    },
+    {
+        "from_table": "dp_hst",
+        "from_column": "dp_hst_ccy_cde",
+        "to_table": "isin_data",
+        "to_column": "isin",
+        "join_type": "INNER JOIN",
+        "join_expression": "dp_hst.dp_hst_ccy_cde = isin_data.isin",
+        "description": (
+            "Each transaction row links to the security (ISIN) that was transacted. "
+            "dp_hst_ccy_cde carries the ISIN code; isin_data.isin is the PK."
+        ),
+    },
+    {
+        "from_table": "dp_hst",
+        "from_column": "dp_hst_br_id",
+        "to_table": "bo_monthly_data",
+        "to_column": "brnch_numb",
+        "join_type": "INNER JOIN",
+        "join_expression": "dp_hst.dp_hst_br_id = bo_monthly_data.brnch_numb",
+        "description": (
+            "Transactions at a branch correlate to customer accounts registered at that same branch. "
+            "This is a branch-level join (not account-level) — multiple BO accounts can share one branch."
+        ),
+    },
+    {
+        "from_table": "bo_monthly_data",
+        "from_column": "brnch_numb",
+        "to_table": "dp_version_states",
+        "to_column": "dp_id",
+        "join_type": "INNER JOIN",
+        "join_expression": "bo_monthly_data.brnch_numb = dp_version_states.dp_id",
+        "description": (
+            "Get the exact branch master record for each customer account. "
+            "Use this when you need branch location, state, DP type, or status alongside customer data."
+        ),
+    },
+    {
+        "from_table": "bo_monthly_data",
+        "from_column": "parent_dp",
+        "to_table": "dp_version_states",
+        "to_column": "dp_id",
+        "join_type": "LEFT JOIN",
+        "join_expression": "bo_monthly_data.parent_dp = dp_version_states.dp_id",
+        "description": (
+            "Fetch the parent branch's own master record for a customer account. "
+            "Use when you specifically need parent DP details (name, type, state) for each customer."
+        ),
+    },
+    {
+        "from_table": "bo_monthly_data",
+        "from_column": "parent_dp",
+        "to_table": "dp_version_states",
+        "to_column": "parent_dp_id",
+        "join_type": "INNER JOIN",
+        "join_expression": "bo_monthly_data.parent_dp = dp_version_states.parent_dp_id",
+        "description": (
+            "PREFERRED join for parent-group analytics. "
+            "Groups customer accounts and branches under the same parent DP umbrella. "
+            "Produces the most matched rows — use this for DP-group-level aggregations."
+        ),
+    },
+]
+
+_RECOMMENDED_JOIN_PATHS: dict[str, str] = {
+    "customer_with_branch_info": (
+        "bo_monthly_data INNER JOIN dp_version_states "
+        "ON bo_monthly_data.brnch_numb = dp_version_states.dp_id"
+    ),
+    "customer_by_parent_group": (
+        "bo_monthly_data INNER JOIN dp_version_states "
+        "ON bo_monthly_data.parent_dp = dp_version_states.parent_dp_id  -- PREFERRED for group analytics"
+    ),
+    "transaction_with_security": (
+        "dp_hst INNER JOIN isin_data "
+        "ON dp_hst.dp_hst_ccy_cde = isin_data.isin"
+    ),
+    "transaction_with_branch": (
+        "dp_hst INNER JOIN dp_version_states "
+        "ON dp_hst.dp_hst_br_id = dp_version_states.dp_id"
+    ),
+    "transaction_with_customer_at_branch": (
+        "dp_hst INNER JOIN bo_monthly_data "
+        "ON dp_hst.dp_hst_br_id = bo_monthly_data.brnch_numb"
+    ),
+    "transaction_branch_security_3table": (
+        "dp_hst "
+        "INNER JOIN dp_version_states ON dp_hst.dp_hst_br_id = dp_version_states.dp_id "
+        "INNER JOIN isin_data ON dp_hst.dp_hst_ccy_cde = isin_data.isin"
+    ),
+    "full_4table_join": (
+        "dp_hst "
+        "INNER JOIN dp_version_states ON dp_hst.dp_hst_br_id = dp_version_states.dp_id "
+        "INNER JOIN bo_monthly_data ON dp_hst.dp_hst_br_id = bo_monthly_data.brnch_numb "
+        "INNER JOIN isin_data ON dp_hst.dp_hst_ccy_cde = isin_data.isin"
+    ),
+    "cust_agg_stats": (
+        "Query cust_agg_stats standalone — it has no FK relationships. "
+        "Filter by catg, sub_catg, sub_catg2, and process_date."
+    ),
+}
+
+
+def get_table_relationships(
+    table_name: str, tool_context: ToolContext
+) -> dict[str, Any]:
+    """Return the foreign key relationship map for CDSL dataset tables.
+
+    Call this tool before constructing any multi-table (JOIN) SQL query to
+    determine the correct join columns between tables. Always call it when
+    the query spans two or more tables — never guess join columns.
+
+    Pass the name of the primary or central table in your query (e.g. "dp_hst"
+    for transaction queries, "bo_monthly_data" for customer queries). Pass "all"
+    to retrieve the complete relationship registry for all tables.
+
+    Args:
+        table_name: The BigQuery table to look up relationships for.
+            Valid values: "dp_hst", "bo_monthly_data", "dp_version_states",
+            "isin_data", "cust_agg_stats", or "all".
+
+    Returns:
+        A dictionary with "status" key ("success" or "error").
+        On success: includes "table_name", "relationships" (list of join
+            definitions with from_table, from_column, to_table, to_column,
+            join_type, join_expression, and description), and
+            "recommended_join_paths" (pre-built path strings for common
+            multi-table patterns).
+        Special case — "cust_agg_stats": returns empty relationships list
+            and a note explaining it must be queried standalone.
+        On error: includes "error_message" with list of valid table names.
+    """
+    logger.info(
+        f"Getting table relationships for: '{table_name}'",
+        extra={"invocation_id": tool_context.invocation_id},
+    )
+
+    normalized = table_name.strip().lower()
+
+    # cust_agg_stats has no FK relationships — return early with explanation
+    if normalized == "cust_agg_stats":
+        return {
+            "status": "success",
+            "table_name": "cust_agg_stats",
+            "relationships": [],
+            "note": (
+                "cust_agg_stats has NO foreign key relationships to any other table. "
+                "It is a pre-aggregated monthly summary table (category counts, demat counts). "
+                "Query it standalone using filters on catg, sub_catg, sub_catg2, and process_date. "
+                "Do NOT attempt to JOIN cust_agg_stats to other tables via column equality."
+            ),
+            "recommended_join_paths": {
+                "cust_agg_stats": _RECOMMENDED_JOIN_PATHS["cust_agg_stats"]
+            },
+        }
+
+    # Return full registry
+    if normalized in ("", "all"):
+        return {
+            "status": "success",
+            "table_name": "all",
+            "relationships": _TABLE_RELATIONSHIPS,
+            "recommended_join_paths": _RECOMMENDED_JOIN_PATHS,
+        }
+
+    # Filter to entries that involve the requested table
+    known_tables = {
+        "dp_hst", "bo_monthly_data", "dp_version_states", "isin_data", "cust_agg_stats"
+    }
+    if normalized not in known_tables:
+        return {
+            "status": "error",
+            "error_message": (
+                f"Unknown table '{table_name}'. "
+                f"Valid table names: {', '.join(sorted(known_tables))}."
+            ),
+        }
+
+    matched = [
+        r for r in _TABLE_RELATIONSHIPS
+        if r["from_table"] == normalized or r["to_table"] == normalized
+    ]
+
+    return {
+        "status": "success",
+        "table_name": table_name,
+        "relationships": matched,
+        "recommended_join_paths": _RECOMMENDED_JOIN_PATHS,
+    }

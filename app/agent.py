@@ -11,7 +11,7 @@ from google.adk.code_executors import BuiltInCodeExecutor
 from google.cloud import bigquery
 from google.genai import types
 
-from .bq_tools import fetch_metadata, list_tables, run_query
+from .bq_tools import fetch_metadata, get_table_relationships, list_tables, run_query
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,53 @@ def return_instructions_root() -> str:
 
     {_TABLE_SCHEMAS}
 
+    ## Table Relationships and Join Keys
+
+    These are the verified foreign key relationships between all 5 tables in cdsl_agentic_demo.
+    Use this map to plan JOIN structure. For any multi-table query, ALWAYS call
+    `get_table_relationships(table_name)` before building SQL to confirm exact join columns.
+
+    ### All Verified Join Paths
+
+    | From Table        | From Column       | To Table           | To Column      | Join Type  | When to Use                                          |
+    |-------------------|-------------------|--------------------|----------------|------------|------------------------------------------------------|
+    | dp_hst            | dp_hst_br_id      | dp_version_states  | dp_id          | INNER JOIN | Transactions → Branch master info                    |
+    | dp_hst            | dp_hst_ccy_cde    | isin_data          | isin           | INNER JOIN | Transactions → Security (ISIN) details               |
+    | dp_hst            | dp_hst_br_id      | bo_monthly_data    | brnch_numb     | INNER JOIN | Transactions → Customer accounts at same branch      |
+    | bo_monthly_data   | brnch_numb        | dp_version_states  | dp_id          | INNER JOIN | Customer → Exact branch master record                |
+    | bo_monthly_data   | parent_dp         | dp_version_states  | dp_id          | LEFT JOIN  | Customer → Parent branch's own master record         |
+    | bo_monthly_data   | parent_dp         | dp_version_states  | parent_dp_id   | INNER JOIN | Customer → Parent group analytics (PREFERRED)        |
+
+    ### bo_monthly_data to dp_version_states — 3 Paths Explained
+
+    There are three ways to join these two tables. Pick based on what the user needs:
+
+    - `bo.brnch_numb = dp.dp_id`           — exact branch match. Use when you need the branch record for each customer account.
+    - `bo.parent_dp = dp.dp_id`            — parent record lookup. Use when you need the parent DP's own master row.
+    - `bo.parent_dp = dp.parent_dp_id`     — PREFERRED for group analytics. Produces the most matched rows.
+                                              Use when grouping customers and branches under the same parent DP umbrella.
+
+    ### cust_agg_stats — No Foreign Keys
+
+    cust_agg_stats has NO FK relationship to any other table. It is a pre-aggregated monthly
+    summary (category counts, unique demat counts). Query it standalone. Filter by catg,
+    sub_catg, sub_catg2, and process_date. Do NOT attempt to JOIN it to other tables.
+
+    ### Join Decision Matrix
+
+    Use this to decide which tables and join path to use based on what the user is asking:
+
+    | User's question involves...                           | Tables required                                    | Join condition to use                                              |
+    |-------------------------------------------------------|----------------------------------------------------|--------------------------------------------------------------------|
+    | Customer demographics + branch location / DP type     | bo_monthly_data + dp_version_states                | bo.brnch_numb = dp.dp_id                                          |
+    | Analytics grouped by parent DP / DP group             | bo_monthly_data + dp_version_states                | bo.parent_dp = dp.parent_dp_id  (PREFERRED)                       |
+    | Transactions + which security was traded              | dp_hst + isin_data                                 | h.dp_hst_ccy_cde = isin.isin                                       |
+    | Transactions + which branch processed them            | dp_hst + dp_version_states                         | h.dp_hst_br_id = dp.dp_id                                         |
+    | Transactions + customer account details               | dp_hst + bo_monthly_data                           | h.dp_hst_br_id = bo.brnch_numb                                    |
+    | Transactions + branch info + security details         | dp_hst + dp_version_states + isin_data             | both dp_hst join conditions above                                  |
+    | Full cross-table (all dimensions)                     | dp_hst + dp_version_states + bo_monthly_data + isin_data | all three dp_hst join conditions                             |
+    | Monthly KPI / category aggregates / demat counts      | cust_agg_stats (standalone)                        | no JOIN — filter by catg, sub_catg, process_date                  |
+
     ## Semantic Reasoning for Business Terms
 
     Users often express queries using business terminology or composite phrases that do not exactly match column names. You must infer the correct column mappings using the column descriptions above.
@@ -98,19 +145,37 @@ def return_instructions_root() -> str:
 
     Follow this 4-step workflow for every user request:
 
-    ### Step 1: Understand Intent and Identify Table
+    ### Step 1: Understand Intent and Identify ALL Tables
 
     - Parse the user's natural language request
-    - Use the known schemas above to identify the appropriate table
-    - If the user mentions a table not in the known schemas, call `list_tables` to discover it
-    - Once the table is identified, proceed to Step 2
+    - Check every query against this keyword-to-table mapping:
+      * "transaction / history / debit / credit / tran_qty / tran_type / tran_code" → `dp_hst`
+      * "customer / account / balance / dormant / PAN / nominee / nil_status / BSDA" → `bo_monthly_data`
+      * "branch / DP / region / dp_state / dp_type / dp_status / dp_name" → `dp_version_states`
+      * "ISIN / security / equity / debt / MF / asset_class / index_status / security_type" → `isin_data`
+      * "category / aggregate / KPI / sub_catg / monthly stats / demat count summary" → `cust_agg_stats`
+    - Count the number of distinct tables identified:
+      * 1 table → single-table query. Skip `get_table_relationships`. Go to Step 2.
+      * 2+ tables → multi-table query. ALWAYS call `get_table_relationships(primary_table)` first,
+                    where primary_table is the central/fact table (prefer `dp_hst` if transactions
+                    are involved, otherwise the table with the most join paths to others).
+                    Use the returned `join_expression` values verbatim in your SQL — do NOT guess join columns.
+    - If the table is still unclear after keyword matching, call `list_tables` to discover available tables.
+    - After table identification (and relationship lookup for multi-table), proceed to Step 2.
 
-    ### Step 2: Fetch Live Schema
+    ### Step 2: Fetch Live Schema for ALL Relevant Tables
 
-    - Call `fetch_metadata("cdsl_agentic_demo", <table_id>, project_id="{project_id}")` on the identified table
-    - This retrieves the live column names, types, and descriptions from BigQuery
-    - Use the schema from this response — not the embedded schema — to build your query
-    - This ensures you have fresh, accurate schema context for semantic reasoning
+    - For EACH table involved in the query, call:
+      `fetch_metadata("cdsl_agentic_demo", <table_id>, project_id="{project_id}")`
+    - Fetch schemas in parallel intent — do not wait to fetch one before identifying the next.
+    - Do NOT begin writing SQL until you have schema responses for ALL tables in the query:
+      * Single-table query  → 1 `fetch_metadata` call
+      * 2-table join        → 2 `fetch_metadata` calls
+      * 3-table join        → 3 `fetch_metadata` calls
+      * 4-table join        → 4 `fetch_metadata` calls
+    - Use live column names from fetch_metadata responses when building SQL (not the embedded schema).
+    - Assign table aliases in SQL that match the logical role: `bo` for bo_monthly_data,
+      `dp` for dp_version_states, `h` for dp_hst, `isin` for isin_data, `agg` for cust_agg_stats.
 
     ### Step 3: Build and Execute SQL Query
 
@@ -193,6 +258,111 @@ def return_instructions_root() -> str:
     Never output or describe the Python code in your response — only present
     the chart and a 1-2 sentence business interpretation of what it shows.
 
+    ## Multi-Table SQL Examples
+
+    Use these as structural templates when building multi-table queries. Always substitute
+    column names from live `fetch_metadata` responses. Table aliases must match:
+    `bo` = bo_monthly_data, `dp` = dp_version_states, `h` = dp_hst, `isin` = isin_data.
+
+    ### Example 1: Customer accounts + branch info (2 tables)
+    -- "Show dormant accounts with their branch state"
+    SELECT
+      dp.dp_id,
+      dp.dp_name,
+      dp.dp_brnch_state,
+      bo.tier,
+      bo.dormant_flag,
+      COUNT(*) AS account_count,
+      SUM(bo.balance) AS total_balance
+    FROM `{project_id}.cdsl_agentic_demo.bo_monthly_data` bo
+    INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
+      ON bo.brnch_numb = dp.dp_id
+    WHERE bo.dormant_flag = 'D'
+    GROUP BY dp.dp_id, dp.dp_name, dp.dp_brnch_state, bo.tier, bo.dormant_flag
+    ORDER BY account_count DESC
+    LIMIT {result_limit};
+
+    ### Example 2: Transaction volume by security type (2 tables)
+    -- "Show transaction count and quantity by asset class"
+    SELECT
+      isin.asset_class,
+      isin.security_type_desc,
+      COUNT(*) AS transaction_count,
+      SUM(h.dp_hst_tran_qty) AS total_quantity
+    FROM `{project_id}.cdsl_agentic_demo.dp_hst` h
+    INNER JOIN `{project_id}.cdsl_agentic_demo.isin_data` isin
+      ON h.dp_hst_ccy_cde = isin.isin
+    GROUP BY isin.asset_class, isin.security_type_desc
+    ORDER BY transaction_count DESC
+    LIMIT {result_limit};
+
+    ### Example 3: Transaction count by branch region (2 tables)
+    -- "How many transactions per branch state?"
+    SELECT
+      dp.dp_region,
+      dp.dp_brnch_state,
+      COUNT(*) AS txn_count,
+      SUM(h.dp_hst_tran_qty) AS total_qty
+    FROM `{project_id}.cdsl_agentic_demo.dp_hst` h
+    INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
+      ON h.dp_hst_br_id = dp.dp_id
+    GROUP BY dp.dp_region, dp.dp_brnch_state
+    ORDER BY txn_count DESC
+    LIMIT {result_limit};
+
+    ### Example 4: Transaction quantity by branch state and asset class (3 tables)
+    -- "Show transaction volume broken down by state and security type"
+    SELECT
+      dp.dp_brnch_state,
+      isin.asset_class,
+      COUNT(*) AS txn_count,
+      SUM(h.dp_hst_tran_qty) AS total_qty
+    FROM `{project_id}.cdsl_agentic_demo.dp_hst` h
+    INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
+      ON h.dp_hst_br_id = dp.dp_id
+    INNER JOIN `{project_id}.cdsl_agentic_demo.isin_data` isin
+      ON h.dp_hst_ccy_cde = isin.isin
+    GROUP BY dp.dp_brnch_state, isin.asset_class
+    ORDER BY txn_count DESC
+    LIMIT {result_limit};
+
+    ### Example 5: Full 4-table join — active accounts with transactions by tier and security
+    -- "For active accounts, show transaction activity by customer tier and asset class"
+    SELECT
+      bo.tier,
+      isin.asset_class,
+      dp.dp_brnch_state,
+      COUNT(DISTINCT h.dp_hst_acct_nbr) AS unique_accounts,
+      COUNT(*) AS txn_count,
+      SUM(h.dp_hst_tran_qty) AS total_qty
+    FROM `{project_id}.cdsl_agentic_demo.dp_hst` h
+    INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
+      ON h.dp_hst_br_id = dp.dp_id
+    INNER JOIN `{project_id}.cdsl_agentic_demo.bo_monthly_data` bo
+      ON h.dp_hst_br_id = bo.brnch_numb
+    INNER JOIN `{project_id}.cdsl_agentic_demo.isin_data` isin
+      ON h.dp_hst_ccy_cde = isin.isin
+    WHERE bo.bo_acct_sts = 'ACTIVE'
+    GROUP BY bo.tier, isin.asset_class, dp.dp_brnch_state
+    ORDER BY total_qty DESC
+    LIMIT {result_limit};
+
+    ### Example 6: Customer count by parent DP group (bo + dp, parent join)
+    -- "How many customers does each parent DP group have?"
+    SELECT
+      dp.parent_dp_id,
+      dp.dp_name,
+      dp.dp_brnch_state,
+      COUNT(*) AS customer_count,
+      SUM(bo.balance) AS total_balance,
+      SUM(bo.new_valuation) AS total_valuation
+    FROM `{project_id}.cdsl_agentic_demo.bo_monthly_data` bo
+    INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
+      ON bo.parent_dp = dp.parent_dp_id
+    GROUP BY dp.parent_dp_id, dp.dp_name, dp.dp_brnch_state
+    ORDER BY customer_count DESC
+    LIMIT {result_limit};
+
     ## Retry Policy
 
     - Maximum 3 `run_query` calls per user request
@@ -210,9 +380,14 @@ def return_instructions_root() -> str:
 
     ## When to Use Discovery Tools
 
-    - `list_tables`: Call only if the user mentions a table not in the known schemas
-    - `fetch_metadata`: Call ALWAYS for the matched table before building SQL (Step 2)
-    - Do NOT skip `fetch_metadata` — it provides live schema context essential for semantic reasoning
+    - `list_tables`: Call only if the user mentions a table not in the known schemas.
+    - `fetch_metadata`: Call ALWAYS — once per table involved in the query (Step 2).
+      Do NOT skip it — live schema context is essential for correct SQL generation.
+    - `get_table_relationships`: Call for ANY query spanning 2 or more tables, BEFORE building SQL (Step 1).
+      * Pass the primary/central table name (e.g. `"dp_hst"` for transaction queries).
+      * Use the `join_expression` values returned verbatim in your SQL JOIN clauses.
+      * Never guess or infer join columns — always call this tool for multi-table queries.
+      * For `cust_agg_stats`, it will confirm there are no FK joins available.
 
     ## Security Rules
 
@@ -334,7 +509,7 @@ root_agent = LlmAgent(
         max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 4096)),
         temperature=float(os.environ.get("TEMPERATURE", 1.0)),
     ),
-    tools=[list_tables, fetch_metadata, run_query],
+    tools=[list_tables, fetch_metadata, get_table_relationships, run_query],
     code_executor=BuiltInCodeExecutor(),
     after_model_callback=_strip_code_parts,
 )
