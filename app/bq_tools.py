@@ -3,6 +3,7 @@
 import datetime
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -263,7 +264,15 @@ def run_query(
         }
     _query_call_counts[invocation_id] = current_count + 1
 
-    cleaned_query = query.strip().upper()
+    if ";" in query:
+        error_msg = "Multi-statement queries are not allowed."
+        logger.error(error_msg)
+        return {"status": "error", "error_message": error_msg}
+
+    # Strip leading SQL comments before checking the statement type so that
+    # comment-prefixed SELECT queries are accepted rather than rejected.
+    stripped = re.sub(r"^(--[^\n]*\n|/\*.*?\*/\s*)+", "", query.strip(), flags=re.DOTALL)
+    cleaned_query = stripped.upper()
     if not (cleaned_query.startswith("SELECT") or cleaned_query.startswith("WITH")):
         error_msg = "Only SELECT queries are allowed to ensure read-only access."
         logger.error(error_msg)
@@ -295,6 +304,7 @@ def run_query(
         rows = list(query_job.result(timeout=30))
         limit = int(os.getenv("BQ_RESULT_LIMIT", 100))
         results = [{k: _to_iso_date(v) for k, v in dict(row).items()} for row in rows]
+        results = results[:limit]
         report = f"Query executed successfully. Returned {len(rows)} rows."
         if len(rows) > limit:
             report += f" Showing first {limit} rows."

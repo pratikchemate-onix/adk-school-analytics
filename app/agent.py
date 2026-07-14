@@ -471,7 +471,7 @@ def _strip_code_parts(callback_context, llm_response):
     # the fully rendered image; the first is a blank/incomplete render.
     last_image_orig_idx = None
     for i, p in enumerate(llm_response.content.parts):
-        if p.inline_data and p.inline_data.mime_type.startswith("image/"):
+        if p.inline_data and p.inline_data.mime_type and p.inline_data.mime_type.startswith("image/"):
             last_image_orig_idx = i
 
     # Pass 2: build the cleaned parts list.
@@ -480,7 +480,7 @@ def _strip_code_parts(callback_context, llm_response):
     for i, p in enumerate(llm_response.content.parts):
         if p.executable_code or p.code_execution_result:
             continue  # strip code blocks and execution results
-        if p.inline_data and p.inline_data.mime_type.startswith("image/"):
+        if p.inline_data and p.inline_data.mime_type and p.inline_data.mime_type.startswith("image/"):
             if i != last_image_orig_idx:
                 continue  # skip all images except the last (fully rendered) one
             last_image_new_idx = len(new_parts)
