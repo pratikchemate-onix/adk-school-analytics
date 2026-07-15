@@ -215,7 +215,6 @@ export default function MessageBubble({ role, text, isThinking, onDrillDown }) {
                   <div className="chart-card-subtitle">{part.spec.subtitle}</div>
                 )}
               </div>
-              <div className="chart-type-badge">{part.spec.type?.toUpperCase()}</div>
             </div>
 
             {/* Chart itself */}
