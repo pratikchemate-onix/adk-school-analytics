@@ -210,3 +210,5 @@ adk-bq-agent-sa-key.json
 opencode.json
 neo4j-mcp-integration-plan.md
 ARCHITECTURE.md
+
+.env.local

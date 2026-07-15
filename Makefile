@@ -132,6 +132,5 @@ frontend-deploy:
 		--source=./frontend \
 		--region=us-central1 \
 		--project=search-ahmed \
-		--allow-unauthenticated \
 		--port=8080 \
 		--set-env-vars="AGENT_ENGINE_RESOURCE=projects/36231825761/locations/us-central1/reasoningEngines/2407788078073643008,GOOGLE_CLOUD_LOCATION=us-central1"

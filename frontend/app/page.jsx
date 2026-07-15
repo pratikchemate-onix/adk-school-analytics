@@ -167,13 +167,6 @@ export default function Home() {
           onSend={handleSend}
           disabled={isLoading || !sessionId}
         />
-        <div className="status-bar">
-          <div className="status-bar-left">
-            <div className={`status-indicator ${isLoading ? 'loading' : ''}`}></div>
-            <span>{isLoading ? 'Processing...' : 'Ready'}</span>
-          </div>
-          <span>{sessionId ? `Session: ${sessionId.slice(0, 8)}...` : 'Connecting...'}</span>
-        </div>
       </main>
     </div>
   )
