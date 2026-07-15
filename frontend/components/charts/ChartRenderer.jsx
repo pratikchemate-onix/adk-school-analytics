@@ -72,19 +72,23 @@ export default function ChartRenderer({ spec, onDrillDown }) {
     return <div style={{ color: 'red' }}>Invalid chart spec: missing type</div>
   }
 
-  switch (spec.type) {
+  // Title and subtitle are already shown in the card header — strip them so
+  // ECharts doesn't render a duplicate that collides with the legend.
+  const { title: _t, subtitle: _s, ...chartSpec } = spec
+
+  switch (chartSpec.type) {
     case 'bar':
-      return <BarChartView spec={spec} onDrillDown={onDrillDown} colors={colors} />
+      return <BarChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
     case 'hbar':
-      return <HBarChartView spec={spec} onDrillDown={onDrillDown} colors={colors} />
+      return <HBarChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
     case 'line':
-      return <LineChartView spec={spec} onDrillDown={onDrillDown} colors={colors} />
+      return <LineChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
     case 'pie':
-      return <PieChartView spec={spec} onDrillDown={onDrillDown} colors={colors} />
+      return <PieChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
     case 'area':
-      return <AreaChartView spec={spec} onDrillDown={onDrillDown} colors={colors} />
+      return <AreaChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
     case 'stacked_bar':
-      return <StackedBarChartView spec={spec} onDrillDown={onDrillDown} colors={colors} />
+      return <StackedBarChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
     default:
       return <FallbackDataView spec={spec} />
   }
