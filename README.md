@@ -1,33 +1,57 @@
-# BigQuery Analytics Agent
+# CDSL Analytics Agent
 
-An AI-powered natural language interface for querying CDSL securities and depository data stored in BigQuery. Users can ask questions in plain English and get insights without writing SQL.
+An AI-powered natural language interface for querying CDSL securities and depository data stored in BigQuery. Ask questions in plain English and get structured insights — including interactive charts — without writing SQL.
 
-- **Model:** Gemini 3.5 Flash
-- **Runtime:** Google Agent Development Kit (ADK)
+- **Model:** Gemini 2.5 Flash (via Vertex AI)
+- **Backend Runtime:** Google Agent Development Kit (ADK)
+- **Frontend:** Next.js 16 + Apache ECharts
 - **Database:** BigQuery (`search-ahmed.cdsl_agentic_demo`)
+- **Deployment:** Vertex AI Agent Engine (backend) + Cloud Run (frontend)
 
 ## Project Structure
 
 ```
-cdsl-bigquery-agent/
+adk-schoool/
 ├── app/
-│   ├── agent.py          # CDSL analytics agent with 5-step query workflow
-│   ├── bq_tools.py       # BigQuery tools (list_tables, fetch_metadata, run_query)
-│   ├── agent_engine_app.py    # Agent Engine deployment wrapper
-│   └── app_utils/             # Utilities (telemetry, deploy, typing)
+│   ├── agent.py                  # CDSL analytics agent with 5-step query workflow
+│   ├── bq_tools.py               # BigQuery tools (list_tables, fetch_metadata, run_query)
+│   ├── agent_engine_app.py       # Vertex AI Agent Engine deployment wrapper
+│   └── app_utils/                # Utilities (telemetry, deploy, typing)
 ├── tests/
-│   ├── unit/                  # Tool security + execution tests
-│   └── integration/           # Agent stream tests
-├── .env.example               # Environment variable template
-├── Makefile                   # Dev commands
-└── pyproject.toml             # Dependencies
+│   ├── unit/                     # Tool security + execution tests
+│   └── integration/              # Agent stream tests
+├── frontend/
+│   ├── app/                      # Next.js App Router (page, layout, globals)
+│   ├── components/
+│   │   ├── ChatInput.jsx
+│   │   ├── ChatWindow.jsx
+│   │   ├── MessageBubble.jsx     # Parses agent responses, renders chart blocks
+│   │   ├── Sidebar.jsx
+│   │   └── charts/
+│   │       ├── ChartRenderer.jsx         # Routes spec.type to the correct view
+│   │       ├── EChartsWrapper.jsx        # SSR-safe dynamic import of echarts-for-react
+│   │       ├── BarChartView.jsx
+│   │       ├── HBarChartView.jsx
+│   │       ├── LineChartView.jsx
+│   │       ├── AreaChartView.jsx
+│   │       ├── PieChartView.jsx
+│   │       └── StackedBarChartView.jsx
+│   ├── lib/
+│   │   ├── adkClient.js          # Streams responses from the ADK API
+│   │   ├── chartUtils.js         # ECharts option builders + theme palettes
+│   │   └── useThemeColors.js     # MutationObserver hook for dark/light mode
+│   ├── Dockerfile
+│   └── package.json
+├── .env.example                  # Environment variable template
+├── Makefile                      # Dev and deploy commands
+└── pyproject.toml                # Python dependencies
 ```
 
 ## Requirements
 
 - **uv** — Python package manager ([install](https://docs.astral.sh/uv/getting-started/installation/))
+- **Node.js 18+** — for the Next.js frontend
 - **Google Cloud SDK** — for GCP/Vertex AI access ([install](https://cloud.google.com/sdk/docs/install))
-- **Service Account** — with BigQuery access (see Setup below)
 - **make** — pre-installed on most Unix systems
 
 ## Setup
@@ -40,35 +64,71 @@ cd adk-school-analytics
 git checkout CDSL
 ```
 
-### 2. Create a Service Account
-
-Create a GCP Service Account with the following roles on the `search-ahmed` project:
-
-- `roles/bigquery.dataViewer` — read access to BigQuery datasets
-- `roles/bigquery.jobUser` — permission to run queries
-
-Download the JSON key file and save it securely (never commit to git).
-
-### 3. Configure environment
+### 2. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set the path to your Service Account key:
+The key variables:
 
-```
-GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/sa-key.json
-```
+| Variable | Description |
+|----------|-------------|
+| `GOOGLE_CLOUD_PROJECT` | GCP project ID (`search-ahmed`) |
+| `GOOGLE_CLOUD_LOCATION` | Region (`us-central1`) |
+| `ROOT_AGENT_MODEL` | Gemini model (`gemini-2.5-flash`) |
+| `BQ_RESULT_LIMIT` | Max rows returned per query (default: 100) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to SA key (optional if using ADC) |
 
-### 4. Install and run
+Authentication options:
+- **Service Account key** — set `GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa-key.json`
+- **Application Default Credentials** — run `gcloud auth application-default login`
+
+### 3. Install and run the backend
 
 ```bash
-make install
-make playground
+make install        # Install Python dependencies
+make playground     # Launch ADK local playground (port 8501)
 ```
 
-Open `http://127.0.0.1:8501`, select the `app` folder, and start querying.
+Or start just the API server (for the frontend):
+
+```bash
+make api-server     # Starts ADK API server on port 8000
+```
+
+### 4. Install and run the frontend
+
+```bash
+make frontend-install   # npm install
+make frontend-dev       # Next.js dev server on port 3000
+```
+
+The frontend connects to `http://localhost:8000` (ADK API server) by default.
+
+## Chart Visualization
+
+The agent can return charts embedded in its responses. When a user explicitly asks for a graph or chart, the agent emits a JSON block that the frontend renders using Apache ECharts.
+
+Supported chart types:
+
+| Type | Description |
+|------|-------------|
+| `bar` | Vertical bar chart |
+| `hbar` | Horizontal bar chart |
+| `line` | Line chart |
+| `area` | Filled area chart |
+| `pie` | Pie / donut chart |
+| `stacked_bar` | Stacked bar chart |
+
+All charts support:
+- **Hover tooltips** with formatted values
+- **Drill-down** — click a bar/slice to query a deeper breakdown
+- **Toolbox** — save as image, view raw data, reset zoom
+- **Data zoom** — slider appears automatically for datasets > 12 points
+- **Dark/light mode** — colors update in real time when the theme is toggled
+
+Unknown chart types fall back to a formatted data table.
 
 ## BigQuery Dataset
 
@@ -76,39 +136,37 @@ The agent queries the `cdsl_agentic_demo` dataset in the `search-ahmed` project.
 
 | Table | Description |
 |-------|-------------|
-| `agg_count` | Aggregated count data |
-| `bo_monthly_data` | Back office monthly data |
-| `dp_version_states` | Depository participant version states |
+| `dp_hst` | Depository participant history / transaction data |
+| `dp_version_states` | DP version and state metadata |
 | `isin_data` | ISIN master data for securities |
+| `cust_agg_stats` | Monthly customer aggregate statistics by category |
 
-The agent discovers table schemas dynamically via `list_tables` and `fetch_metadata` tools.
+The agent discovers table schemas dynamically at startup via direct BigQuery API calls.
 
 ## Sample Queries
 
-Try these in the playground:
-
 ```
-Show me all tables in the dataset.
-What columns are in the isin_data table?
-List the top 10 rows from isin_data.
-How many records are in bo_monthly_data?
-Show me the schema for dp_version_states.
+Show me total transactions per branch for this year.
+Which ISINs had the highest demat count last month?
+Show me a bar chart of monthly BO counts by category.
+Compare active vs dormant account trends over the last 6 months.
+What is the state-wise breakdown of DP participants?
 ```
 
 ## How It Works
 
-The agent follows a 5-step workflow:
+The agent follows a structured workflow per query:
 
-1. **Table Discovery** — Matches user intent to available tables via `list_tables`
-2. **Schema Validation** — Fetches live schema via `fetch_metadata`
-3. **SQL Construction** — Builds safe, optimized queries
-4. **Dry Run** — Validates query before execution
-5. **Execution** — Runs query and presents results
+1. **Table Identification** — Maps user intent to the relevant tables using pre-loaded schemas and relationship metadata
+2. **Schema Validation** — Fetches live column definitions via `fetch_metadata`
+3. **SQL Construction** — Builds safe, optimized read-only queries with fully-qualified table names
+4. **Dry Run** — Validates query syntax and cost before execution
+5. **Execution** — Runs the query, formats results, and optionally emits a chart spec
 
 ## Security
 
-- **Read-only:** Only SELECT and WITH queries allowed
-- **No DML/DDL:** INSERT, UPDATE, DELETE, CREATE, DROP all blocked
+- **Read-only:** Only `SELECT` and `WITH` queries allowed
+- **No DML/DDL:** `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `DROP` all blocked
 - **Row limits:** Configurable via `BQ_RESULT_LIMIT` (default: 100)
 - **Project-scoped:** Only queries `search-ahmed.cdsl_agentic_demo`
 
@@ -116,17 +174,40 @@ The agent follows a 5-step workflow:
 
 | Command | Description |
 |---------|-------------|
-| `make install` | Install dependencies |
-| `make playground` | Launch local dev environment |
+| `make install` | Install Python dependencies |
+| `make playground` | Launch local ADK playground (port 8501) |
+| `make api-server` | Start ADK API server for frontend (port 8000) |
+| `make frontend-install` | Install frontend npm dependencies |
+| `make frontend-dev` | Start Next.js dev server (port 3000) |
 | `make test` | Run unit and integration tests |
-| `make lint` | Run code quality checks |
-| `make deploy` | Deploy to Google Agent Engine |
+| `make lint` | Run ruff, codespell, and type checks |
+| `make deploy` | Deploy backend to Vertex AI Agent Engine |
+| `make frontend-deploy` | Deploy frontend to Cloud Run |
 
 ## Deployment
+
+### Backend (Vertex AI Agent Engine)
 
 ```bash
 gcloud config set project search-ahmed
 make deploy
 ```
 
-See the [deployment guide](https://googlecloudplatform.github.io/agent-starter-pack/guide/deployment) for CI/CD and Terraform setup.
+The backend is deployed to:
+`projects/36231825761/locations/us-central1/reasoningEngines/2407788078073643008`
+
+### Frontend (Cloud Run)
+
+```bash
+make frontend-deploy
+```
+
+Before deploying, grant the Compute Service Account access to call the Agent Engine:
+
+```bash
+gcloud projects add-iam-policy-binding search-ahmed \
+  --member="serviceAccount:36231825761-compute@developer.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+```
+
+The frontend on Cloud Run uses the GCP metadata server for authentication — no token management needed.

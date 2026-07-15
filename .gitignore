@@ -208,3 +208,5 @@ tools/a2a-inspector/
 adk-bq-agent-sa-key.json
 .code-review-graph
 opencode.json
+neo4j-mcp-integration-plan.md
+ARCHITECTURE.md
