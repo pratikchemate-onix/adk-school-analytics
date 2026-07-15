@@ -226,22 +226,56 @@ def return_instructions_root() -> str:
     Do NOT output any other code blocks. Do NOT explain the JSON. Just output it.
 
     Chart type selection rules:
-      - Comparing values across categories (≤ 20 categories)  → type: "bar"
-      - Trend over time (date/time on x-axis)                 → type: "line"
-      - Part-of-whole distribution (≤ 6 slices)              → type: "pie"
-      - Cumulative trend with filled area                     → type: "area"
+      - Comparing values across categories (≤ 20 categories, short labels ≤ 8 chars) → type: "bar"
+      - Comparing values across categories with long labels (> 8 chars avg)           → type: "hbar"
+      - Trend over time (date/time on x-axis)                                         → type: "line"
+      - Part-of-whole distribution (≤ 8 slices)                                       → type: "pie"
+      - Cumulative trend with filled area                                              → type: "area"
+      - Composition breakdown across multiple categories (2+ segments per category)   → type: "stacked_bar"
 
-    **For bar / line / area charts, output exactly:**
+    **Drill-down field (optional but STRONGLY recommended):**
+    Add a "drill_down" object whenever the data has a natural next level of granularity:
+      - State data → drill down by city/district
+      - Segment/tier data → drill down by sub-segment or gender
+      - Branch/DP data → drill down by individual DP or account type
+      - Date/month data → drill down by week or day
+    If drill-down is applicable, include this field in the chart spec.
+    The "prompt_template" must contain the literal token <value> (with angle brackets).
+    The frontend replaces <value> with whichever category the user clicks on at runtime.
+    Example drill_down for state-level data:
+      "drill_down": {{ "dimension": "city-wise", "filter_key": "state_col", "prompt_template": "Show me city-wise breakdown for <value>" }}
+    Example drill_down for segment data:
+      "drill_down": {{ "dimension": "sub-segment", "filter_key": "segment_col", "prompt_template": "Show me sub-segment breakdown for <value>" }}
+
+    **For bar / hbar / line / area charts, output exactly:**
 
     ```chart
     {{
       "type": "bar",
       "title": "Human-readable chart title describing the data",
+      "subtitle": "Optional one-line context (date range, filter applied, etc.)",
       "x_key": "exact_column_name_for_x_axis",
       "y_keys": ["metric_column_1"],
       "data": [
         {{ "x_axis_column": "value1", "metric_column_1": 123 }},
         {{ "x_axis_column": "value2", "metric_column_1": 456 }}
+      ],
+      "drill_down": {{ "dimension": "city-wise", "filter_key": "state_column", "prompt_template": "Show me city-wise breakdown for <value>" }}
+    }}
+    ```
+
+    **For stacked_bar charts, output exactly:**
+
+    ```chart
+    {{
+      "type": "stacked_bar",
+      "title": "Human-readable chart title",
+      "subtitle": "Optional context",
+      "x_key": "category_column_name",
+      "y_keys": ["segment_a", "segment_b", "segment_c"],
+      "data": [
+        {{ "category_column": "Cat A", "segment_a": 100, "segment_b": 50, "segment_c": 30 }},
+        {{ "category_column": "Cat B", "segment_a": 80, "segment_b": 70, "segment_c": 20 }}
       ]
     }}
     ```
@@ -252,21 +286,25 @@ def return_instructions_root() -> str:
     {{
       "type": "pie",
       "title": "Human-readable chart title",
+      "subtitle": "Optional context",
       "name_key": "category_column_name",
       "value_key": "numeric_column_name",
       "data": [
         {{ "category_column": "Category A", "numeric_column": 100 }},
         {{ "category_column": "Category B", "numeric_column": 75 }}
-      ]
+      ],
+      "drill_down": {{ "dimension": "city-wise", "filter_key": "state_column", "prompt_template": "Show me city-wise breakdown for <value>" }}
     }}
     ```
 
     **Critical rules:**
       - Use exact column names from the query result (no renaming)
-      - Cap data at 20 rows for bar/line/area charts
-      - Cap data at 6 rows for pie charts
-      - y_keys may contain multiple columns for grouped comparison charts
-      - After the ```chart block, add 1-2 sentences of business interpretation
+      - Cap data at 20 rows for bar/hbar/line/area/stacked_bar charts
+      - Cap data at 8 rows for pie charts (use top 8 by value, add "Others" row for remainder if needed)
+      - y_keys may contain multiple columns for grouped or stacked comparison charts
+      - subtitle is optional — include it when there is meaningful context (e.g. "Top 10 states by account count, FY 2024")
+      - drill_down is optional — include it only when a clear next level of granularity exists
+      - After the ```chart block, add 2-3 sentences of business interpretation highlighting the key insight
       - Do NOT include markdown, Python code, or any other content inside the ```chart block
       - The JSON must be valid (no trailing commas, proper quoting)
 

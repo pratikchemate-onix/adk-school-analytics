@@ -36,36 +36,36 @@ const CustomTooltip = ({ active, payload, label }) => {
       fontSize: '13px',
       color: 'var(--text-primary)',
       boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-      minWidth: '160px',
+      maxWidth: '220px',
     }}>
-      <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--text-primary)' }}>{label}</div>
+      <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--text-primary)', wordBreak: 'break-word' }}>
+        {label}
+      </div>
       {payload.map((entry) => (
         <div key={entry.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-          <span style={{ width: 10, height: 10, borderRadius: 3, background: entry.fill, display: 'inline-block', flexShrink: 0 }} />
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: entry.fill, display: 'inline-block' }} />
           <span style={{ color: 'var(--text-secondary)' }}>{entry.name}:</span>
-          <span style={{ fontWeight: 600, marginLeft: 'auto', paddingLeft: 8 }}>{formatValue(entry.value)}</span>
+          <span style={{ fontWeight: 600 }}>{formatValue(entry.value)}</span>
         </div>
       ))}
     </div>
   )
 }
 
-export default function BarChartView({ spec, onDrillDown }) {
+export default function HBarChartView({ spec, onDrillDown }) {
   const { x_key, y_keys, data } = spec
 
   if (!data || data.length === 0) {
-    return <div style={{ color: 'var(--text-secondary)' }}>No data for bar chart</div>
+    return <div style={{ color: 'var(--text-secondary)' }}>No data for chart</div>
   }
 
   const hasDrillDown = !!spec.drill_down
-  const needsRotation = data.length > 7 || data.some(d => String(d[x_key] || '').length > 8)
-  const bottomMargin = needsRotation ? 72 : 20
-  const chartHeight = 360
-  const singleSeries = y_keys.length === 1
+  const barHeight = Math.max(32, Math.min(52, Math.floor(320 / data.length)))
+  const chartHeight = Math.max(260, data.length * barHeight + 60)
 
   const handleBarClick = (barData) => {
     if (!hasDrillDown || !onDrillDown || !barData) return
-    const clickedValue = barData[x_key] ?? barData.activeLabel
+    const clickedValue = barData[x_key] ?? barData.name
     const prompt = spec.drill_down.prompt_template.replace('<value>', clickedValue)
     onDrillDown(prompt, clickedValue)
   }
@@ -74,32 +74,30 @@ export default function BarChartView({ spec, onDrillDown }) {
     <ResponsiveContainer width="100%" height={chartHeight}>
       <BarChart
         data={data}
-        margin={{ top: 20, right: 20, left: 10, bottom: bottomMargin }}
-        barCategoryGap="30%"
-        barGap={4}
+        layout="vertical"
+        margin={{ top: 8, right: 60, left: 8, bottom: 8 }}
+        barCategoryGap="20%"
       >
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" horizontal={false} />
         <XAxis
-          dataKey={x_key}
-          tick={{
-            fontSize: 12,
-            fill: 'var(--text-secondary)',
-            ...(needsRotation ? { angle: -40, textAnchor: 'end', dy: 4 } : {}),
-          }}
+          type="number"
+          tick={{ fontSize: 11, fill: 'var(--text-secondary)' }}
           axisLine={{ stroke: 'var(--border-color)' }}
           tickLine={false}
-          interval={0}
+          tickFormatter={formatValue}
         />
         <YAxis
-          tick={{ fontSize: 11, fill: 'var(--text-secondary)' }}
+          type="category"
+          dataKey={x_key}
+          tick={{ fontSize: 12, fill: 'var(--text-secondary)' }}
           axisLine={false}
           tickLine={false}
-          tickFormatter={formatValue}
-          width={55}
+          width={130}
+          tickFormatter={(val) => typeof val === 'string' && val.length > 18 ? val.slice(0, 17) + '…' : val}
         />
-        <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(138,180,248,0.06)' }} />
+        <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(138,180,248,0.08)' }} />
         <Legend
-          wrapperStyle={{ paddingTop: 14, fontSize: 12 }}
+          wrapperStyle={{ paddingTop: 12, fontSize: 12, color: 'var(--text-secondary)' }}
           formatter={(value) => <span style={{ color: 'var(--text-secondary)' }}>{value}</span>}
         />
         {y_keys.map((key, idx) => (
@@ -107,25 +105,23 @@ export default function BarChartView({ spec, onDrillDown }) {
             key={key}
             dataKey={key}
             name={key}
+            radius={[0, 6, 6, 0]}
             fill={CHART_COLORS[idx % CHART_COLORS.length]}
-            radius={[5, 5, 0, 0]}
             onClick={handleBarClick}
             style={{ cursor: hasDrillDown ? 'pointer' : 'default' }}
           >
-            {/* Value labels only for single-series charts with few bars */}
-            {singleSeries && data.length <= 12 && (
-              <LabelList
-                dataKey={key}
-                position="top"
-                formatter={formatValue}
-                style={{ fontSize: 11, fill: 'var(--text-secondary)', fontWeight: 500 }}
-              />
-            )}
-            {/* Color each bar differently in single-series charts */}
-            {singleSeries && data.map((_, i) => (
+            <LabelList
+              dataKey={key}
+              position="right"
+              formatter={formatValue}
+              style={{ fontSize: 11, fill: 'var(--text-secondary)', fontWeight: 500 }}
+            />
+            {data.map((_, i) => (
               <Cell
                 key={`cell-${i}`}
-                fill={CHART_COLORS[i % CHART_COLORS.length]}
+                fill={y_keys.length === 1
+                  ? CHART_COLORS[i % CHART_COLORS.length]
+                  : CHART_COLORS[idx % CHART_COLORS.length]}
               />
             ))}
           </Bar>
