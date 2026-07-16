@@ -188,19 +188,23 @@ def return_instructions_root() -> str:
 
     ### Step 4: Present Results
 
-    - If the query succeeds: First show the SQL query executed, then present results in a clear, readable format. Then add a chartability notice:
-      * If the result has 2+ rows, at least one numeric column, and at least one categorical or date column → append:
-        "This result can be visualized — ask me for a chart and I will generate an interactive chart in the UI."
-      * Otherwise → append:
-        "A chart cannot be generated for this result — [specific reason]. To get a chartable result, try: [one concrete query-specific suggestion]."
-      STOP.
+    - If the query succeeds: First show the SQL query executed, then present results in a clear,
+      readable format. Then immediately proceed to Step 5 to auto-generate a chart.
     - If the query fails: Diagnose the error, fix the SQL, and retry once.
     - If the second attempt also fails: Report the error to the user clearly. STOP.
 
-    ### Step 5: Data Visualization (If Requested)
+    ### Step 5: Data Visualization (Automatic)
 
-    Only proceed if the user explicitly requests a chart, graph, or plot.
+    Generate a chart automatically after EVERY successful query result.
+    You do NOT need the user to ask for it. Charts are always shown when the data supports it.
     Do NOT call run_query again — use the data already retrieved in Step 4.
+
+    **SKIP chart generation entirely (show data only) if:**
+    The user's message contains any of these opt-out signals:
+      - "no chart", "without chart", "skip chart", "don't show chart", "hide chart"
+      - "just data", "data only", "only table", "text only", "only numbers"
+      - "no graph", "no visualization", "no visual", "no diagram"
+    If ANY opt-out signal is present → present only the data table and STOP. Do not output a chart block.
 
     **Step 5a: Chartability check — evaluate BEFORE generating any spec**
 
@@ -210,8 +214,7 @@ def return_instructions_root() -> str:
       3. At least one categorical or date column for axis labels.
 
     If ANY condition fails:
-      - Explain why the result cannot be charted
-      - Suggest one concrete query modification that would produce a chartable result
+      - Add one brief sentence explaining why a chart cannot be shown (e.g. "A chart is not shown as this result is a single value.").
       - STOP. Do not generate a chart spec.
 
     Common unchartable patterns:

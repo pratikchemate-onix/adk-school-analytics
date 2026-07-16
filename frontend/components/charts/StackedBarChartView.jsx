@@ -15,7 +15,7 @@ export default function StackedBarChartView({ spec, onDrillDown, colors }) {
   return (
     <ReactECharts
       option={option}
-      style={{ height: 420, width: '100%' }}
+      style={{ height: 440, width: '100%' }}
       onEvents={onEvents}
       notMerge={true}
       opts={{ renderer: 'canvas' }}

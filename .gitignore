@@ -211,3 +211,6 @@ neo4j-mcp-integration-plan.md
 ARCHITECTURE.md
 
 .env.local
+
+docs/
+docs/*
