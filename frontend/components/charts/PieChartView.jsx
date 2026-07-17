@@ -1,8 +1,8 @@
 import ReactECharts from './EChartsWrapper'
 import { buildPieOption } from '../../lib/chartUtils'
 
-export default function PieChartView({ spec, onDrillDown, colors }) {
-  const option = buildPieOption(spec, colors)
+export default function PieChartView({ spec, onDrillDown, colors, fontScale = 1 }) {
+  const option = buildPieOption(spec, colors, fontScale)
 
   const onEvents = spec.drill_down ? {
     click: params => {

@@ -1,8 +1,8 @@
 import ReactECharts from './EChartsWrapper'
 import { buildStackedBarOption } from '../../lib/chartUtils'
 
-export default function StackedBarChartView({ spec, onDrillDown, colors }) {
-  const option = buildStackedBarOption(spec, colors)
+export default function StackedBarChartView({ spec, onDrillDown, colors, fontScale = 1 }) {
+  const option = buildStackedBarOption(spec, colors, fontScale)
 
   const onEvents = spec.drill_down ? {
     click: params => {

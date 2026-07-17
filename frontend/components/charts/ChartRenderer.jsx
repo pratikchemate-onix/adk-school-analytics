@@ -66,29 +66,28 @@ function FallbackDataView({ spec }) {
 }
 
 export default function ChartRenderer({ spec, onDrillDown }) {
-  const colors = useThemeColors()
+  const { colors, fontScale } = useThemeColors()
 
   if (!spec || !spec.type) {
     return <div style={{ color: 'red' }}>Invalid chart spec: missing type</div>
   }
 
-  // Title and subtitle are already shown in the card header — strip them so
-  // ECharts doesn't render a duplicate that collides with the legend.
+  // Title and subtitle are shown in the card header — strip to avoid ECharts duplicate.
   const { title: _t, subtitle: _s, ...chartSpec } = spec
 
   switch (chartSpec.type) {
     case 'bar':
-      return <BarChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
+      return <BarChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} fontScale={fontScale} />
     case 'hbar':
-      return <HBarChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
+      return <HBarChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} fontScale={fontScale} />
     case 'line':
-      return <LineChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
+      return <LineChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} fontScale={fontScale} />
     case 'pie':
-      return <PieChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
+      return <PieChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} fontScale={fontScale} />
     case 'area':
-      return <AreaChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
+      return <AreaChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} fontScale={fontScale} />
     case 'stacked_bar':
-      return <StackedBarChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} />
+      return <StackedBarChartView spec={chartSpec} onDrillDown={onDrillDown} colors={colors} fontScale={fontScale} />
     default:
       return <FallbackDataView spec={spec} />
   }

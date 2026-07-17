@@ -1,42 +1,42 @@
 // ─── Color Palettes ───────────────────────────────────────────────────────────
-// 16-color beautiful, diverse palettes — vibrant for dark, deeper for light
+// Teal / blue / emerald dominant — matches the reference dashboard aesthetic
 
 export const DARK_PALETTE = [
-  '#6366f1', // indigo
-  '#10b981', // emerald
-  '#f59e0b', // amber
-  '#3b82f6', // blue
-  '#ec4899', // pink
-  '#a78bfa', // purple
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#34d399', // mint
-  '#fb7185', // rose
-  '#38bdf8', // sky
-  '#84cc16', // lime
-  '#e879f9', // fuchsia
-  '#2dd4bf', // turquoise
-  '#facc15', // yellow
-  '#14b8a6', // teal
+  '#60a5fa', // blue-400        — large dominant segments
+  '#38bdf8', // sky-400         — secondary blue
+  '#2dd4bf', // teal-400        — teal segments
+  '#34d399', // emerald-400     — green segments
+  '#818cf8', // indigo-400
+  '#7dd3fc', // sky-300         — lighter blue
+  '#5eead4', // teal-300        — lighter teal
+  '#a78bfa', // violet-400
+  '#94a3b8', // slate-400       — neutral/gray segments
+  '#cbd5e1', // slate-300       — light gray
+  '#6ee7b7', // emerald-300
+  '#f472b6', // pink-400
+  '#fb923c', // orange-400
+  '#facc15', // yellow-400
+  '#c084fc', // purple-400
+  '#4ade80', // green-400
 ]
 
 export const LIGHT_PALETTE = [
-  '#4f46e5', // indigo
-  '#059669', // emerald
-  '#d97706', // amber
-  '#2563eb', // blue
-  '#db2777', // pink
-  '#7c3aed', // purple
-  '#0891b2', // cyan
-  '#ea580c', // orange
-  '#10b981', // mint
-  '#f43f5e', // rose
-  '#0284c7', // sky
-  '#65a30d', // lime
-  '#c026d3', // fuchsia
-  '#0d9488', // teal
-  '#ca8a04', // yellow
-  '#0f766e', // dark teal
+  '#3b82f6', // blue-500
+  '#0284c7', // sky-600
+  '#0d9488', // teal-600
+  '#059669', // emerald-600
+  '#4f46e5', // indigo-600
+  '#0369a1', // sky-700
+  '#0f766e', // teal-700
+  '#7c3aed', // violet-600
+  '#64748b', // slate-500
+  '#94a3b8', // slate-400
+  '#16a34a', // green-600
+  '#db2777', // pink-600
+  '#ea580c', // orange-600
+  '#ca8a04', // yellow-600
+  '#9333ea', // purple-600
+  '#15803d', // green-700
 ]
 
 // Keep for backward-compat imports
@@ -47,30 +47,38 @@ export const DARK_COLORS = {
   label:         '#e2e8f0',
   legend:        '#94a3b8',
   title:         '#f1f5f9',
-  splitLine:     'rgba(148,163,184,0.10)',
-  tooltipBg:     '#0f172a',
-  tooltipBorder: '#334155',
+  splitLine:     'rgba(148,163,184,0.08)',
+  tooltipBg:     '#0c1929',
+  tooltipBorder: '#1e3a5f',
   tooltipText:   '#f1f5f9',
   tooltipMuted:  '#94a3b8',
-  paginator:     '#6366f1',
-  toolboxIcon:   '#64748b',
+  paginator:     '#38bdf8',
+  toolboxIcon:   '#475569',
   toolboxHover:  '#e2e8f0',
+  // Horizontal bar gradient endpoints (left → right)
+  hbarStart:     '#164e63',  // cyan-900 dark
+  hbarMid:       '#0e7490',  // cyan-700
+  hbarEnd:       '#22d3ee',  // cyan-400 bright
   palette:       DARK_PALETTE,
 }
 
 export const LIGHT_COLORS = {
-  axis:          '#475569',
+  axis:          '#64748b',
   label:         '#1e293b',
   legend:        '#64748b',
   title:         '#0f172a',
-  splitLine:     'rgba(71,85,105,0.10)',
+  splitLine:     'rgba(100,116,139,0.10)',
   tooltipBg:     '#ffffff',
   tooltipBorder: '#e2e8f0',
   tooltipText:   '#0f172a',
   tooltipMuted:  '#64748b',
-  paginator:     '#4f46e5',
-  toolboxIcon:   '#64748b',
+  paginator:     '#3b82f6',
+  toolboxIcon:   '#94a3b8',
   toolboxHover:  '#0f172a',
+  // Horizontal bar gradient endpoints (left → right)
+  hbarStart:     '#075985',  // sky-800
+  hbarMid:       '#0284c7',  // sky-600
+  hbarEnd:       '#38bdf8',  // sky-400
   palette:       LIGHT_PALETTE,
 }
 
@@ -91,25 +99,68 @@ export function humanizeKey(str) {
     .trim()
 }
 
-// Build an ECharts LinearGradient object (top → bottom)
+// ─── Font Scale ───────────────────────────────────────────────────────────────
+// Returns pixel font sizes scaled by a viewport-derived factor (0.7 – 1.2).
+// Pass `fontScale` from useThemeColors() → ChartRenderer → each chart view.
+
+export function getChartFonts(scale = 1) {
+  const s = Math.max(0.7, Math.min(1.2, scale))
+  return {
+    axis:      Math.round(12 * s),   // axis tick labels
+    label:     Math.round(11 * s),   // bar / data labels
+    legend:    Math.round(12 * s),   // legend text
+    tooltip:   Math.round(13 * s),   // tooltip body
+    pie:       Math.round(11 * s),   // pie slice labels
+    center:    Math.round(26 * s),   // donut center main value
+    centerSub: Math.round(13 * s),   // donut center "Total" caption
+  }
+}
+
+// ─── Gradient Helpers ─────────────────────────────────────────────────────────
+
+// Vertical gradient for vertical bars (top → bottom)
 function barGradient(color) {
   return {
     type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
     colorStops: [
       { offset: 0,   color: color },
-      { offset: 1,   color: color + 'bb' },
+      { offset: 1,   color: color + 'aa' },
     ],
   }
 }
 
-// Area-chart gradient (dramatic fade)
+// Horizontal gradient for horizontal bars (left → right) — matches reference image
+// All bars share the SAME gradient: dark navy-teal → bright cyan
+function hbarGradient(colors) {
+  return {
+    type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
+    colorStops: [
+      { offset: 0,    color: colors.hbarStart },
+      { offset: 0.55, color: colors.hbarMid },
+      { offset: 1,    color: colors.hbarEnd },
+    ],
+  }
+}
+
+// Vertical gradient for multi-series horizontal bars (per-series color)
+function hbarSeriesGradient(color) {
+  return {
+    type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
+    colorStops: [
+      { offset: 0, color: color + 'bb' },
+      { offset: 1, color: color },
+    ],
+  }
+}
+
+// Area-chart gradient (dramatic fade, vertical)
 function areaGradient(color) {
   return {
     type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
     colorStops: [
-      { offset: 0,   color: color + '70' }, // ~44% opacity
-      { offset: 0.5, color: color + '28' }, // ~16% opacity
-      { offset: 1,   color: color + '05' }, // ~2%  opacity
+      { offset: 0,   color: color + '70' },
+      { offset: 0.5, color: color + '28' },
+      { offset: 1,   color: color + '05' },
     ],
   }
 }
@@ -128,7 +179,7 @@ function tooltipDot(color) {
 
 const FONT = "'Google Sans', 'Segoe UI', system-ui, sans-serif"
 
-// ─── Shared sub-builders ──────────────────────────────────────────────────────
+// ─── Shared Sub-Builders ──────────────────────────────────────────────────────
 
 function makeToolbox(colors) {
   return {
@@ -152,26 +203,26 @@ function makeDataZoom(dataLength, colors) {
       type: 'slider',
       start: 0, end: endPct,
       height: 20, bottom: 4,
-      borderColor:    colors.tooltipBorder,
-      fillerColor:    (colors.palette[0]) + '22',
-      handleStyle:    { color: colors.palette[0], borderColor: colors.palette[0] },
-      moveHandleStyle:{ color: colors.palette[0] },
-      textStyle:      { color: colors.axis, fontSize: 11 },
+      borderColor:     colors.tooltipBorder,
+      fillerColor:     (colors.palette[0]) + '22',
+      handleStyle:     { color: colors.palette[0], borderColor: colors.palette[0] },
+      moveHandleStyle: { color: colors.palette[0] },
+      textStyle:       { color: colors.axis, fontSize: 11 },
     },
   ]
 }
 
-function makeAxisBase(colors) {
+function makeAxisBase(colors, fonts) {
   return {
     axisLine:  { show: false },
     axisTick:  { show: false },
     splitLine: { lineStyle: { type: 'dashed', color: colors.splitLine, width: 1 } },
-    axisLabel: { color: colors.axis, fontSize: 12, fontFamily: FONT },
+    axisLabel: { color: colors.axis, fontSize: fonts.axis, fontFamily: FONT },
   }
 }
 
-// Rich axis tooltip (bar/line)
-function makeAxisTooltip(colors) {
+// Rich axis tooltip (bar / line)
+function makeAxisTooltip(colors, fonts) {
   return {
     trigger: 'axis',
     confine: true,
@@ -179,10 +230,12 @@ function makeAxisTooltip(colors) {
     borderColor:     colors.tooltipBorder,
     borderWidth: 1,
     padding: [10, 14],
-    extraCssText: `border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.18);`,
-    textStyle: { color: colors.tooltipText, fontSize: 13 },
+    extraCssText: `border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,0.28);`,
+    textStyle: { color: colors.tooltipText, fontSize: fonts.tooltip, fontFamily: FONT },
     formatter(params) {
-      const header = `<div style="font-size:12px;color:${colors.tooltipMuted};margin-bottom:6px;font-weight:500">${params[0]?.axisValueLabel ?? params[0]?.name ?? ''}</div>`
+      const header =
+        `<div style="font-size:${fonts.tooltip - 1}px;color:${colors.tooltipMuted};margin-bottom:6px;font-weight:500;letter-spacing:0.03em">` +
+        `${params[0]?.axisValueLabel ?? params[0]?.name ?? ''}</div>`
       const rows = params.map(p =>
         `<div style="display:flex;align-items:center;justify-content:space-between;gap:20px;margin:3px 0">` +
         `<span style="display:flex;align-items:center">${tooltipDot(p.color)}<span style="color:${colors.tooltipText}">${p.seriesName}</span></span>` +
@@ -195,7 +248,7 @@ function makeAxisTooltip(colors) {
 }
 
 // Rich pie tooltip
-function makePieTooltip(colors) {
+function makePieTooltip(colors, fonts) {
   return {
     trigger: 'item',
     confine: true,
@@ -203,24 +256,24 @@ function makePieTooltip(colors) {
     borderColor:     colors.tooltipBorder,
     borderWidth: 1,
     padding: [10, 14],
-    extraCssText: `border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.18);`,
-    textStyle: { color: colors.tooltipText, fontSize: 13 },
+    extraCssText: `border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,0.28);`,
+    textStyle: { color: colors.tooltipText, fontSize: fonts.tooltip, fontFamily: FONT },
     formatter(p) {
       return (
         `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">` +
         `${tooltipDot(p.color)}<span style="font-weight:600;color:${colors.tooltipText}">${p.name}</span></div>` +
         `<div style="display:flex;justify-content:space-between;gap:24px;margin-bottom:3px">` +
-        `<span style="color:${colors.tooltipMuted};font-size:12px">Value</span>` +
+        `<span style="color:${colors.tooltipMuted};font-size:${fonts.tooltip - 1}px">Value</span>` +
         `<span style="font-weight:700">${formatValue(p.value)}</span></div>` +
         `<div style="display:flex;justify-content:space-between;gap:24px">` +
-        `<span style="color:${colors.tooltipMuted};font-size:12px">Share</span>` +
+        `<span style="color:${colors.tooltipMuted};font-size:${fonts.tooltip - 1}px">Share</span>` +
         `<span style="font-weight:700">${p.percent}%</span></div>`
       )
     },
   }
 }
 
-function makeLegend(colors, top = 4) {
+function makeLegend(colors, fonts, top = 4) {
   return {
     type:       'scroll',
     top,
@@ -228,67 +281,141 @@ function makeLegend(colors, top = 4) {
     itemWidth:  14,
     itemHeight: 8,
     itemGap:    16,
-    textStyle:  { color: colors.legend, fontSize: 12, fontFamily: FONT },
+    textStyle:  { color: colors.legend, fontSize: fonts.legend, fontFamily: FONT },
     pageIconColor:  colors.paginator,
-    pageTextStyle:  { color: colors.legend, fontSize: 11 },
+    pageTextStyle:  { color: colors.legend, fontSize: fonts.legend - 1 },
   }
 }
 
-// ─── Bar Chart ────────────────────────────────────────────────────────────────
+// ─── Bar Chart (vertical + horizontal) ────────────────────────────────────────
 
-export function buildBarOption(spec, horizontal = false, colors = LIGHT_COLORS) {
-  const palette      = colors.palette ?? DARK_PALETTE
-  const categories   = spec.data.map(d => String(d[spec.x_key]))
-  const drillable    = !!spec.drill_down
-  const dataLen      = spec.data.length
-  const showLabels   = dataLen <= 12
-  const dataZoom     = horizontal ? undefined : makeDataZoom(dataLen, colors)
-  const hasLegend    = spec.y_keys.length > 1
-  const singleSeries = spec.y_keys.length === 1   // ← give each bar its own color
-  const axisBase     = makeAxisBase(colors)
+export function buildBarOption(spec, horizontal = false, colors = LIGHT_COLORS, fontScale = 1) {
+  const fonts      = getChartFonts(fontScale)
+  const palette    = colors.palette ?? DARK_PALETTE
+  const categories = spec.data.map(d => String(d[spec.x_key]))
+  const drillable  = !!spec.drill_down
+  const dataLen    = spec.data.length
+  const showLabels = dataLen <= 16
+  const dataZoom   = horizontal ? undefined : makeDataZoom(dataLen, colors)
+  const hasLegend  = spec.y_keys.length > 1
+  const singleSeries = spec.y_keys.length === 1
+  const axisBase   = makeAxisBase(colors, fonts)
 
   const series = spec.y_keys.map((key, i) => {
     const seriesColor = palette[i % palette.length]
+
+    // ── Horizontal single-series: all bars get the same left-to-right gradient
+    if (horizontal && singleSeries) {
+      const grad = hbarGradient(colors)
+      return {
+        name: humanizeKey(key),
+        type: 'bar',
+        barMaxWidth: 32,
+        barMinHeight: 3,
+        barCategoryGap: '30%',
+        data: spec.data.map(d => ({
+          value: d[key],
+          name:  String(d[spec.x_key]),
+          itemStyle: {
+            color:        grad,
+            borderRadius: [0, 6, 6, 0],
+          },
+        })),
+        cursor: drillable ? 'pointer' : 'default',
+        emphasis: {
+          itemStyle: {
+            shadowBlur:  20,
+            shadowColor: colors.hbarEnd + '55',
+          },
+        },
+        label: showLabels ? {
+          show:       true,
+          position:   'right',
+          formatter:  p => formatValue(p.value),
+          color:      colors.label,
+          fontSize:   fonts.label,
+          fontWeight: 600,
+          fontFamily: FONT,
+          distance:   6,
+        } : { show: false },
+        animationDelay: idx => idx * 30,
+      }
+    }
+
+    // ── Horizontal multi-series: per-series left-to-right gradient
+    if (horizontal && !singleSeries) {
+      return {
+        name: humanizeKey(key),
+        type: 'bar',
+        barMaxWidth: 28,
+        barMinHeight: 3,
+        data: spec.data.map(d => ({ value: d[key], name: String(d[spec.x_key]) })),
+        itemStyle: {
+          color:        hbarSeriesGradient(seriesColor),
+          borderRadius: [0, 6, 6, 0],
+        },
+        cursor: drillable ? 'pointer' : 'default',
+        emphasis: {
+          itemStyle: { shadowBlur: 16, shadowColor: seriesColor + '55' },
+        },
+        label: showLabels ? {
+          show: true, position: 'right',
+          formatter: p => formatValue(p.value),
+          color: colors.label, fontSize: fonts.label, fontWeight: 600,
+          fontFamily: FONT, distance: 6,
+        } : { show: false },
+      }
+    }
+
+    // ── Vertical single-series: per-bar palette colors with vertical gradient
+    if (!horizontal && singleSeries) {
+      return {
+        name: humanizeKey(key),
+        type: 'bar',
+        barMaxWidth: 54,
+        barMinHeight: 3,
+        data: spec.data.map((d, idx) => ({
+          value: d[key],
+          name:  String(d[spec.x_key]),
+          itemStyle: {
+            color:        barGradient(palette[idx % palette.length]),
+            borderRadius: [6, 6, 0, 0],
+          },
+        })),
+        cursor: drillable ? 'pointer' : 'default',
+        emphasis: {
+          itemStyle: { shadowBlur: 16, shadowOffsetY: 4, shadowColor: palette[0] + '55' },
+        },
+        label: showLabels ? {
+          show: true, position: 'top',
+          formatter: p => formatValue(p.value),
+          color: colors.label, fontSize: fonts.label, fontWeight: 600,
+          fontFamily: FONT, distance: 5,
+        } : { show: false },
+        animationDelay: idx => idx * 25,
+      }
+    }
+
+    // ── Vertical multi-series: per-series color
     return {
       name: humanizeKey(key),
       type: 'bar',
-      barMaxWidth: horizontal ? 34 : 54,
+      barMaxWidth: 54,
       barMinHeight: 3,
-      // Per-bar colors when single-series; single color when multi-series
-      data: spec.data.map((d, idx) => ({
-        value: d[key],
-        name: String(d[spec.x_key]),
-        ...(singleSeries ? {
-          itemStyle: {
-            color:        barGradient(palette[idx % palette.length]),
-            borderRadius: horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0],
-          },
-        } : {}),
-      })),
-      // Series-level itemStyle only for multi-series (overridden per-item above for single)
-      itemStyle: singleSeries ? {
-        borderRadius: horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0],
-      } : {
+      data: spec.data.map(d => ({ value: d[key], name: String(d[spec.x_key]) })),
+      itemStyle: {
         color:        barGradient(seriesColor),
-        borderRadius: horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0],
+        borderRadius: [6, 6, 0, 0],
       },
       cursor: drillable ? 'pointer' : 'default',
       emphasis: {
-        itemStyle: {
-          shadowBlur:   16,
-          shadowOffsetY: horizontal ? 0 : 4,
-          shadowColor:  (singleSeries ? palette[0] : seriesColor) + '55',
-        },
+        itemStyle: { shadowBlur: 16, shadowOffsetY: 4, shadowColor: seriesColor + '55' },
       },
       label: showLabels ? {
-        show:       true,
-        position:   horizontal ? 'right' : 'top',
-        formatter:  p => formatValue(p.value),
-        color:      colors.label,
-        fontSize:   11,
-        fontWeight: 600,
-        fontFamily: FONT,
-        distance:   5,
+        show: true, position: 'top',
+        formatter: p => formatValue(p.value),
+        color: colors.label, fontSize: fonts.label, fontWeight: 600,
+        fontFamily: FONT, distance: 5,
       } : { show: false },
       animationDelay: idx => idx * 25,
     }
@@ -297,16 +424,16 @@ export function buildBarOption(spec, horizontal = false, colors = LIGHT_COLORS) 
   return {
     backgroundColor: 'transparent',
     animation:        true,
-    animationDuration:800,
-    animationEasing:  'cubicOut',
+    animationDuration: 900,
+    animationEasing:   'cubicOut',
     toolbox: makeToolbox(colors),
-    tooltip: makeAxisTooltip(colors),
-    legend: hasLegend ? { ...makeLegend(colors, 4) } : { show: false },
+    tooltip: makeAxisTooltip(colors, fonts),
+    legend:  hasLegend ? { ...makeLegend(colors, fonts, 4) } : { show: false },
     dataZoom,
     grid: {
       containLabel: true,
       left:   horizontal ? 12 : 16,
-      right:  horizontal ? 86 : 16,
+      right:  horizontal ? 96 : 16,
       top:    hasLegend ? 52 : 24,
       bottom: dataZoom ? 56 : 12,
     },
@@ -346,13 +473,13 @@ export function buildBarOption(spec, horizontal = false, colors = LIGHT_COLORS) 
 
 // ─── Stacked Bar ──────────────────────────────────────────────────────────────
 
-export function buildStackedBarOption(spec, colors = LIGHT_COLORS) {
-  const palette    = colors.palette ?? DARK_PALETTE
+export function buildStackedBarOption(spec, colors = LIGHT_COLORS, fontScale = 1) {
+  const fonts    = getChartFonts(fontScale)
+  const palette  = colors.palette ?? DARK_PALETTE
   const categories = spec.data.map(d => String(d[spec.x_key]))
   const drillable  = !!spec.drill_down
-  const axisBase   = makeAxisBase(colors)
+  const axisBase   = makeAxisBase(colors, fonts)
 
-  // Per-category totals for the top label
   const totals = spec.data.map(d =>
     spec.y_keys.reduce((sum, k) => sum + (Number(d[k]) || 0), 0)
   )
@@ -379,7 +506,7 @@ export function buildStackedBarOption(spec, colors = LIGHT_COLORS) {
         position:   'top',
         formatter:  p => formatValue(totals[p.dataIndex]),
         color:      colors.label,
-        fontSize:   11,
+        fontSize:   fonts.label,
         fontWeight: 600,
         fontFamily: FONT,
         distance:   5,
@@ -390,11 +517,11 @@ export function buildStackedBarOption(spec, colors = LIGHT_COLORS) {
   return {
     backgroundColor: 'transparent',
     animation:        true,
-    animationDuration:800,
-    animationEasing:  'cubicOut',
+    animationDuration: 900,
+    animationEasing:   'cubicOut',
     toolbox: makeToolbox(colors),
-    tooltip: makeAxisTooltip(colors),
-    legend: { ...makeLegend(colors, 4) },
+    tooltip: makeAxisTooltip(colors, fonts),
+    legend:  { ...makeLegend(colors, fonts, 4) },
     grid: { containLabel: true, left: 16, right: 16, top: 52, bottom: 12 },
     xAxis: {
       type: 'category', data: categories,
@@ -419,15 +546,16 @@ export function buildStackedBarOption(spec, colors = LIGHT_COLORS) {
 
 // ─── Line / Area ──────────────────────────────────────────────────────────────
 
-export function buildLineOption(spec, filled = false, colors = LIGHT_COLORS) {
-  const palette    = colors.palette ?? DARK_PALETTE
+export function buildLineOption(spec, filled = false, colors = LIGHT_COLORS, fontScale = 1) {
+  const fonts    = getChartFonts(fontScale)
+  const palette  = colors.palette ?? DARK_PALETTE
   const categories = spec.data.map(d => String(d[spec.x_key]))
   const drillable  = !!spec.drill_down
   const dataLen    = spec.data.length
   const dataZoom   = makeDataZoom(dataLen, colors)
   const hasLegend  = spec.y_keys.length > 1
   const showSymbol = dataLen <= 20
-  const axisBase   = makeAxisBase(colors)
+  const axisBase   = makeAxisBase(colors, fonts)
 
   const series = spec.y_keys.map((key, i) => {
     const color = palette[i % palette.length]
@@ -446,7 +574,7 @@ export function buildLineOption(spec, filled = false, colors = LIGHT_COLORS) {
       emphasis: {
         focus: 'series',
         lineStyle:  { width: 4 },
-        itemStyle:  { color, borderColor: '#fff', borderWidth: 2, shadowBlur: 8, shadowColor: color + '66' },
+        itemStyle:  { color, borderColor: '#fff', borderWidth: 2, shadowBlur: 10, shadowColor: color + '66' },
       },
       ...(filled ? { areaStyle: { color: areaGradient(color) } } : {}),
     }
@@ -455,23 +583,23 @@ export function buildLineOption(spec, filled = false, colors = LIGHT_COLORS) {
   return {
     backgroundColor: 'transparent',
     animation:        true,
-    animationDuration:900,
-    animationEasing:  'cubicOut',
+    animationDuration: 900,
+    animationEasing:   'cubicOut',
     toolbox: makeToolbox(colors),
     tooltip: {
-      ...makeAxisTooltip(colors),
+      ...makeAxisTooltip(colors, fonts),
       axisPointer: {
         type: 'cross',
         crossStyle: { color: colors.axis, width: 1, type: 'dashed' },
         label: {
           backgroundColor: palette[0],
           color:    '#fff',
-          fontSize: 11,
+          fontSize: fonts.axis - 1,
           padding:  [4, 8],
         },
       },
     },
-    legend: hasLegend ? { ...makeLegend(colors, 4) } : { show: false },
+    legend:   hasLegend ? { ...makeLegend(colors, fonts, 4) } : { show: false },
     dataZoom,
     grid: {
       containLabel: true,
@@ -502,7 +630,8 @@ export function buildLineOption(spec, filled = false, colors = LIGHT_COLORS) {
 
 // ─── Pie / Donut ──────────────────────────────────────────────────────────────
 
-export function buildPieOption(spec, colors = LIGHT_COLORS) {
+export function buildPieOption(spec, colors = LIGHT_COLORS, fontScale = 1) {
+  const fonts   = getChartFonts(fontScale)
   const palette = colors.palette ?? DARK_PALETTE
 
   // Total for center label
@@ -514,7 +643,7 @@ export function buildPieOption(spec, colors = LIGHT_COLORS) {
     value: d[spec.value_key],
     itemStyle: {
       color:        palette[i % palette.length],
-      borderRadius: 4,    // subtle rounding — large value creates visible gaps
+      borderRadius: 5,
       borderColor:  'transparent',
       borderWidth:  2,
     },
@@ -526,35 +655,42 @@ export function buildPieOption(spec, colors = LIGHT_COLORS) {
   const centerY    = '50%'
 
   const legend = manySlices
-    ? { ...makeLegend(colors), orient: 'vertical', right: 8, top: 'middle', type: 'scroll' }
-    : { ...makeLegend(colors), orient: 'horizontal', bottom: 4 }
+    ? {
+        ...makeLegend(colors, fonts),
+        orient: 'vertical',
+        right:  8,
+        top:    'middle',
+        type:   'scroll',
+      }
+    : {
+        ...makeLegend(colors, fonts),
+        orient: 'horizontal',
+        bottom: 4,
+      }
 
-  // Center label — ECharts `title` array is the most reliable way to perfectly
-  // center text inside a donut. `left: centerX` + `textAlign: 'center'`
-  // places the text anchor at the same X coordinate as the donut center.
-  // Two title objects: main = value, second = "Total" below it.
+  // Two ECharts `title` objects: main value + "Total" label below
   const title = [
     {
       text:      totalLabel,
       left:      centerX,
-      top:       '40%',
+      top:       '41%',
       textAlign: 'center',
       textStyle: {
         color:      colors.label,
-        fontSize:   26,
+        fontSize:   fonts.center,
         fontWeight: 700,
         fontFamily: FONT,
-        lineHeight: 30,
+        lineHeight: fonts.center + 4,
       },
     },
     {
       text:      'Total',
       left:      centerX,
-      top:       '52%',
+      top:       '53%',
       textAlign: 'center',
       textStyle: {
         color:      colors.legend,
-        fontSize:   13,
+        fontSize:   fonts.centerSub,
         fontWeight: 400,
         fontFamily: FONT,
       },
@@ -562,43 +698,45 @@ export function buildPieOption(spec, colors = LIGHT_COLORS) {
   ]
 
   return {
-    backgroundColor:  'transparent',
-    animation:         true,
-    animationDuration: 900,
-    animationEasing:   'cubicOut',
+    backgroundColor:   'transparent',
+    animation:          true,
+    animationDuration:  900,
+    animationEasing:    'cubicOut',
     title,
     toolbox: makeToolbox(colors),
-    tooltip: makePieTooltip(colors),
+    tooltip: makePieTooltip(colors, fonts),
     legend,
     series: [{
       type:     'pie',
+      // Thinner ring ratio — matches the reference donut style
       radius:   ['42%', '70%'],
       center:   [centerX, centerY],
-      padAngle: 2,          // reduced from 4 — subtle gap, not gaping
+      padAngle: 2,
       cursor:   'pointer',
       data,
       label: {
         show:       true,
         color:      colors.label,
-        fontSize:   11,
+        fontSize:   fonts.pie,
         fontFamily: FONT,
-        formatter:  '{b|{b}}\n{d}%',
-        rich: {
-          b: { fontSize: 11, color: colors.label, fontWeight: 500, lineHeight: 16 },
-        },
-        overflow: 'truncate',
-        width:    90,
+        formatter:  '{b}',
+        overflow:   'truncate',
+        width:      88,
       },
       labelLine: {
         length:    10,
-        length2:   14,
+        length2:   16,
         smooth:    true,
         lineStyle: { color: colors.axis, width: 1.5 },
       },
       emphasis: {
         scale:     true,
-        scaleSize: 6,
-        itemStyle: { shadowBlur: 20, shadowColor: 'rgba(0,0,0,0.35)' },
+        scaleSize: 7,
+        itemStyle: { shadowBlur: 24, shadowColor: 'rgba(0,0,0,0.35)' },
+        label: {
+          fontSize: fonts.pie + 1,
+          fontWeight: 600,
+        },
       },
     }],
   }
