@@ -21,6 +21,14 @@
   --table-header-bg: #2d2e30;
   --table-row-alt-bg: rgba(255, 255, 255, 0.03);
   --table-border: #3c4043;
+  /* Chart card — deep navy + vibrant glow accents */
+  --chart-card-bg: #0d1117;
+  --chart-card-border: #22d3ee40;
+  --chart-card-glow: rgba(34, 211, 238, 0.08);
+  --chart-title-color: #f0f9ff;
+  --chart-accent-1: #22d3ee;
+  --chart-accent-2: #e879f9;   /* electric fuchsia — matches new palette [1] */
+  --chart-accent-3: #34d399;
 }
 
 [data-theme='light'] {
@@ -45,6 +53,14 @@
   --table-header-bg: #f1f3f4;
   --table-row-alt-bg: rgba(0, 0, 0, 0.02);
   --table-border: #dadce0;
+  /* Chart card — ALWAYS dark navy regardless of app theme */
+  --chart-card-bg: #0d1117;
+  --chart-card-border: #22d3ee40;
+  --chart-card-glow: rgba(34, 211, 238, 0.08);
+  --chart-title-color: #f0f9ff;
+  --chart-accent-1: #22d3ee;
+  --chart-accent-2: #e879f9;   /* electric fuchsia — matches new palette [1] */
+  --chart-accent-3: #34d399;
 }
 
 * {
@@ -598,79 +614,94 @@ button {
 
 .chart-card {
   margin: 20px 0;
-  background: var(--tertiary-bg);
+  background: var(--chart-card-bg);
   border-radius: 18px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--chart-card-border);
   overflow: hidden;
   max-width: 860px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.14), 0 1px 4px rgba(0, 0, 0, 0.08);
-  transition: box-shadow 0.25s, transform 0.25s;
+  /* Layered shadow: depth + cyan ambient glow */
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.40),
+    0 2px 8px rgba(0, 0, 0, 0.20),
+    0 0 0 1px var(--chart-card-border),
+    0 0 40px var(--chart-card-glow);
+  transition: box-shadow 0.3s ease, transform 0.3s ease, border-color 0.3s ease;
 }
 
 .chart-card:hover {
-  box-shadow: 0 8px 36px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.10);
-  transform: translateY(-1px);
+  border-color: var(--chart-accent-1);
+  box-shadow:
+    0 16px 56px rgba(0, 0, 0, 0.50),
+    0 4px 16px rgba(0, 0, 0, 0.25),
+    0 0 0 1px var(--chart-accent-1),
+    0 0 60px var(--chart-card-glow),
+    0 0 80px rgba(34, 211, 238, 0.06);
+  transform: translateY(-3px);
 }
 
-/* Accent gradient strip at the top of every chart card */
+/* chart-card hover is identical in both modes — no light-mode override needed */
+
+/* Vibrant gradient accent strip — 4px, full saturation */
 .chart-card::before {
   content: '';
   display: block;
-  height: 3px;
-  background: linear-gradient(90deg, #6366f1 0%, #06b6d4 50%, #10b981 100%);
-  opacity: 0.85;
-}
-
-[data-theme='light'] .chart-card::before {
-  background: linear-gradient(90deg, #4f46e5 0%, #0891b2 50%, #059669 100%);
-  opacity: 0.75;
+  height: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--chart-accent-1) 0%,
+    var(--chart-accent-2) 50%,
+    var(--chart-accent-3) 100%
+  );
+  opacity: 1;
 }
 
 .chart-card-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 14px 22px 0;
+  padding: 16px 22px 4px;
   gap: 12px;
 }
 
 .chart-card-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: clamp(12px, 1.6vw, 14px);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--chart-title-color);
   line-height: 1.3;
-  letter-spacing: -0.01em;
 }
 
 .chart-card-subtitle {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 3px;
+  font-size: clamp(11px, 1.4vw, 12px);
+  /* Fixed: chart cards are always dark — don't follow theme's --text-secondary */
+  color: #94a3b8;
+  margin-top: 4px;
   line-height: 1.4;
+  letter-spacing: 0.01em;
 }
 
 .chart-type-badge {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  color: var(--accent-blue);
-  background: rgba(99, 102, 241, 0.10);
-  border: 1px solid rgba(99, 102, 241, 0.22);
+  font-size: clamp(9px, 1.1vw, 10px);
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  color: var(--chart-accent-1);
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.35);
   border-radius: 20px;
   padding: 3px 10px;
   flex-shrink: 0;
   margin-top: 2px;
   text-transform: uppercase;
+  white-space: nowrap;
+  /* Subtle glow on the badge */
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.15);
 }
 
-[data-theme='light'] .chart-type-badge {
-  color: #4f46e5;
-  background: rgba(79, 70, 229, 0.07);
-  border-color: rgba(79, 70, 229, 0.18);
-}
+/* chart-type-badge is identical in both modes — no light-mode override needed */
 
 .chart-body {
-  padding: 8px 12px 10px;
+  padding: 4px 10px 12px;
 }
 
 /* ─── Drill-Down Hint ────────────────────── */
@@ -679,32 +710,29 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 22px 13px;
-  font-size: 11.5px;
-  color: var(--text-muted);
-  border-top: 1px solid var(--border-color);
+  padding: 9px 22px 14px;
+  font-size: clamp(10px, 1.3vw, 11.5px);
+  /* Fixed: always readable on dark card */
+  color: #64748b;
+  border-top: 1px solid var(--chart-card-border);
   margin-top: 4px;
-  background: linear-gradient(0deg, rgba(99,102,241,0.03) 0%, transparent 100%);
+  background: linear-gradient(0deg, rgba(34,211,238,0.06) 0%, transparent 100%);
 }
 
 .drill-hint svg {
   flex-shrink: 0;
-  color: #6366f1;
-  opacity: 0.8;
+  color: var(--chart-accent-1);
+  opacity: 1;
+  filter: drop-shadow(0 0 4px var(--chart-accent-1));
 }
 
 .drill-hint strong {
-  color: #6366f1;
-  font-weight: 600;
+  color: var(--chart-accent-1);
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(34, 211, 238, 0.4);
 }
 
-[data-theme='light'] .drill-hint svg {
-  color: #4f46e5;
-}
-
-[data-theme='light'] .drill-hint strong {
-  color: #4f46e5;
-}
+/* drill-hint strong identical in both modes — no override needed */
 
 /* ─── Drill-Down Breadcrumb ──────────────── */
 

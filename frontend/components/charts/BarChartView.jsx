@@ -1,8 +1,8 @@
 import ReactECharts from './EChartsWrapper'
 import { buildBarOption } from '../../lib/chartUtils'
 
-export default function BarChartView({ spec, onDrillDown, colors }) {
-  const option = buildBarOption(spec, false, colors)
+export default function BarChartView({ spec, onDrillDown, colors, fontScale = 1 }) {
+  const option = buildBarOption(spec, false, colors, fontScale)
 
   const onEvents = spec.drill_down ? {
     click: params => {

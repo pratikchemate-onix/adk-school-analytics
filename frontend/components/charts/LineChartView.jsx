@@ -1,8 +1,8 @@
 import ReactECharts from './EChartsWrapper'
 import { buildLineOption } from '../../lib/chartUtils'
 
-export default function LineChartView({ spec, onDrillDown, colors }) {
-  const option = buildLineOption(spec, false, colors)
+export default function LineChartView({ spec, onDrillDown, colors, fontScale = 1 }) {
+  const option = buildLineOption(spec, false, colors, fontScale)
 
   const onEvents = spec.drill_down ? {
     click: params => {
