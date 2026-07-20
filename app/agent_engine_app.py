@@ -54,7 +54,6 @@ class AgentEngineApp(AdkApp):
 
 
 gemini_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
-logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
 agent_engine = AgentEngineApp(
     app=adk_app,
     artifact_service_builder=lambda: InMemoryArtifactService(),

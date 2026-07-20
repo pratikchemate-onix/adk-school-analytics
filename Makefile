@@ -38,7 +38,10 @@ api-server:
 # Deploy the agent remotely
 # Usage: make deploy [AGENT_IDENTITY=true] [SECRETS="KEY=SECRET_ID,..."]
 # Env vars are auto-loaded from .env file
-DEPLOY_ENV_VARS := $(shell grep -v '^\s*\#' .env | grep '=' | grep -v 'GOOGLE_APPLICATION_CREDENTIALS' | grep -v 'GOOGLE_CLOUD_PROJECT' | tr '\n' ',' | sed 's/,$$//')
+# NOTE: TWELVE_DATA_API_KEY and ALPHA_VANTAGE_API_KEY are deliberately excluded from
+# DEPLOY_ENV_VARS below — they must be passed via SECRETS="TWELVE_DATA_API_KEY=<secret-id>,..."
+# backed by Secret Manager, never shipped as plaintext env vars.
+DEPLOY_ENV_VARS := $(shell grep -v '^\s*\#' .env | grep '=' | grep -v 'GOOGLE_APPLICATION_CREDENTIALS' | grep -v 'GOOGLE_CLOUD_PROJECT' | grep -v 'TWELVE_DATA_API_KEY' | grep -v 'ALPHA_VANTAGE_API_KEY' | tr '\n' ',' | sed 's/,$$//')
 
 deploy:
 	# Export dependencies targeting Python 3.11 (Agent Engine runtime)

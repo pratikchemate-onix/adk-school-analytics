@@ -55,6 +55,10 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+# Graphify local cache + generated JSON artifacts (GRAPH_REPORT.md is meant to be committed)
+.graphify/cache/
+.graphify/*.json
+
 # Translations
 *.mo
 *.pot
@@ -214,3 +218,8 @@ ARCHITECTURE.md
 
 docs/
 docs/*
+.mcp.json
+CLAUDE.md
+.graphify/GRAPH_REPORT.md
+postman/stock_apis.postman_collection.json
+.claude/settings.json

@@ -11,6 +11,13 @@ from google.cloud import bigquery
 from google.genai import types
 
 from .bq_tools import fetch_metadata, get_table_relationships, list_tables, run_query
+from .stock_tools import (
+    get_company_profile,
+    get_stock_fundamentals,
+    get_stock_historical_prices,
+    get_stock_quote,
+    search_stock_symbol,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -457,6 +464,95 @@ def return_instructions_root() -> str:
     - Present multi-row results as aligned fixed-width plain-text tables
     - Handle errors gracefully
 
+    ## Stock Market Data Tools
+
+    These five tools query live external stock-market data sources (Twelve Data,
+    Alpha Vantage, and Yahoo Finance for NSE/BSE-listed Indian equities) and are
+    completely separate from the BigQuery workflow above — do NOT call
+    fetch_metadata, get_table_relationships, or run_query for stock-market questions,
+    and do NOT call BigQuery tools and stock tools in the same turn.
+
+    ### Tool Selection
+
+    - "What's the ticker for X" / user names a company instead of a ticker -> search_stock_symbol(query)
+    - "What's the current price / quote for X" -> get_stock_quote(symbol)
+    - "Tell me about company X" / "what does X do" / "what sector is X in" -> get_company_profile(symbol)
+    - "Show me the price history / trend / chart for X" / "how has X performed over the last N days" -> get_stock_historical_prices(symbol)
+    - "What's the P/E ratio / EPS / valuation of X" / "is X cheap or expensive" -> get_stock_fundamentals(symbol)
+
+    Only call get_stock_fundamentals when the user explicitly asks about valuation
+    ratios — it uses the Alpha Vantage API, which has a very low free-tier daily
+    quota. Do NOT call it automatically alongside a quote or historical-price request.
+
+    ### Resolving Company Names to Tickers (Search-First)
+
+    get_stock_quote, get_company_profile, get_stock_historical_prices, and
+    get_stock_fundamentals all take a `symbol` argument that must be an exchange
+    ticker (e.g. "AAPL", not "Apple").
+
+    - If the user already gives a literal ticker symbol (short, all-caps, no
+      spaces), use it directly — do not call search_stock_symbol first.
+    - If the user names a company instead of a ticker, you MUST call
+      search_stock_symbol(query=<company name>) before calling any other stock
+      tool. Do NOT map a company name to a ticker from your own memory — that
+      knowledge can be stale (companies go public, delist, rename, or change
+      primary listings after a model's training cutoff), and an incorrect
+      guessed ticker will silently return another company's data.
+    - Exactly one clearly-matching result (e.g. "Common Stock" on the expected
+      primary exchange) -> use that ticker automatically, no need to confirm.
+    - Multiple plausible matches (different exchanges, share classes) -> list
+      the candidates (symbol, name, exchange) and ask the user which one they
+      mean before calling any other stock tool.
+    - No matches -> tell the user plainly that no tradable ticker was found for
+      that name via the data provider. Phrase this as "not found in the
+      search," not as a confident claim that the company is private — the
+      search result reflects the provider's live data, not your own
+      knowledge, and is the more current source of truth.
+
+    ### Indian Market (NSE/BSE) Support
+
+    Indian exchange tickers use a ".NS" (NSE) or ".BO" (BSE) suffix, e.g.
+    "RELIANCE.NS". This is resolved and routed automatically by the tools — if
+    search_stock_symbol returns a ".NS"/".BO" ticker for an Indian company,
+    pass it to get_stock_quote / get_company_profile /
+    get_stock_historical_prices / get_stock_fundamentals exactly like any
+    other ticker. No extra tool calls or special-casing are needed on your
+    part.
+
+    ### Handling Tool Errors
+
+    - If a tool returns status "error" mentioning the API key is not configured, tell
+      the user this feature is not yet enabled and STOP — do not retry.
+    - If a tool returns status "error" mentioning a rate limit, tell the user the data
+      provider's free-tier limit was reached and suggest trying again later. Do NOT
+      retry automatically.
+    - If get_stock_quote, get_company_profile, get_stock_historical_prices, or
+      get_stock_fundamentals returns status "error" mentioning the ticker was not
+      found, ask the user to confirm the ticker symbol (or re-run
+      search_stock_symbol). Do NOT retry with a guessed alternative ticker without
+      confirming with the user.
+    - If search_stock_symbol itself returns status "error" (no matches), relay
+      that directly per the "No matches" guidance above — do not retry with a
+      different guessed query on your own.
+
+    ### Visualizing Historical Price Data
+
+    After a successful get_stock_historical_prices call, apply the same opt-out
+    signals and chartability check as Step 5a above, then render a chart using the
+    exact same ```chart JSON contract defined in Step 5b (the bar/hbar/line/area
+    format). Use:
+      - "type": "line" for price trend over time (default), or "area" if the user
+        asks for a filled/cumulative look.
+      - "x_key": "date"
+      - "y_keys": ["close"] (add "open", "high", "low" only if the user asks for a
+        multi-line comparison)
+      - "data": the list of {{"date": ..., "close": ...}} rows returned by the tool,
+        capped at 20 points per the existing chart data cap rule (sample or take the
+        most recent 20 if more were returned).
+      - "title": e.g. "AAPL - Daily Closing Price"
+    Do not fabricate a drill_down for stock price charts — there is no natural
+    drill-down dimension for a single ticker's time series.
+
     ## Response Format
 
     - Be concise and professional
@@ -520,7 +616,17 @@ root_agent = LlmAgent(
         max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 4096)),
         temperature=float(os.environ.get("TEMPERATURE", 1.0)),
     ),
-    tools=[list_tables, fetch_metadata, get_table_relationships, run_query]
+    tools=[
+        list_tables,
+        fetch_metadata,
+        get_table_relationships,
+        run_query,
+        get_stock_quote,
+        get_company_profile,
+        get_stock_historical_prices,
+        get_stock_fundamentals,
+        search_stock_symbol,
+    ]
 )
 
 app = App(
