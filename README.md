@@ -136,17 +136,18 @@ The agent queries the `cdsl_agentic_demo` dataset in the `search-ahmed` project.
 
 | Table | Description |
 |-------|-------------|
-| `dp_hst` | Depository participant history / transaction data |
-| `dp_version_states` | DP version and state metadata |
+| `bo_monthly_data` | Customer/BO account master data (balance, dormancy, PAN linkage, tier) |
+| `dp_version_states` | DP branch/version and state metadata |
 | `isin_data` | ISIN master data for securities |
-| `cust_agg_stats` | Monthly customer aggregate statistics by category |
+| `agg_count` | Monthly aggregated customer counts by category (Tier, Gender, AgeRange, IncomeRange, Balance, Dormant status) |
+| `dp_hst` | *Not yet available* — referenced in code as a future transaction-history table, but no data has been loaded into BigQuery yet |
 
 The agent discovers table schemas dynamically at startup via direct BigQuery API calls.
 
 ## Sample Queries
 
 ```
-Show me total transactions per branch for this year.
+Show me active customer accounts along with their branch's state and DP type.
 Which ISINs had the highest demat count last month?
 Show me a bar chart of monthly BO counts by category.
 Compare active vs dormant account trends over the last 6 months.

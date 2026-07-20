@@ -102,9 +102,9 @@ def return_instructions_root() -> str:
     - `bo.parent_dp = dp.parent_dp_id`     — PREFERRED for group analytics. Produces the most matched rows.
                                               Use when grouping customers and branches under the same parent DP umbrella.
 
-    ### cust_agg_stats — No Foreign Keys
+    ### agg_count — No Foreign Keys
 
-    cust_agg_stats has NO FK relationship to any other table. It is a pre-aggregated monthly
+    agg_count has NO FK relationship to any other table. It is a pre-aggregated monthly
     summary (category counts, unique demat counts). Query it standalone. Filter by catg,
     sub_catg, sub_catg2, and process_date. Do NOT attempt to JOIN it to other tables.
 
@@ -121,7 +121,7 @@ def return_instructions_root() -> str:
     | Transactions + customer account details               | dp_hst + bo_monthly_data                           | h.dp_hst_br_id = bo.brnch_numb                                    |
     | Transactions + branch info + security details         | dp_hst + dp_version_states + isin_data             | both dp_hst join conditions above                                  |
     | Full cross-table (all dimensions)                     | dp_hst + dp_version_states + bo_monthly_data + isin_data | all three dp_hst join conditions                             |
-    | Monthly KPI / category aggregates / demat counts      | cust_agg_stats (standalone)                        | no JOIN — filter by catg, sub_catg, process_date                  |
+    | Monthly KPI / category aggregates / demat counts      | agg_count (standalone)                        | no JOIN — filter by catg, sub_catg, process_date                  |
 
     ## Semantic Reasoning for Business Terms
 
@@ -159,7 +159,7 @@ def return_instructions_root() -> str:
       * "customer / account / balance / dormant / PAN / nominee / nil_status / BSDA" → `bo_monthly_data`
       * "branch / DP / region / dp_state / dp_type / dp_status / dp_name" → `dp_version_states`
       * "ISIN / security / equity / debt / MF / asset_class / index_status / security_type" → `isin_data`
-      * "category / aggregate / KPI / sub_catg / monthly stats / demat count summary" → `cust_agg_stats`
+      * "category / aggregate / KPI / sub_catg / monthly stats / demat count summary" → `agg_count`
     - Count the number of distinct tables identified:
       * 1 table → single-table query. Skip `get_table_relationships`. Go to Step 2.
       * 2+ tables → multi-table query. ALWAYS call `get_table_relationships(primary_table)` first,
@@ -181,7 +181,7 @@ def return_instructions_root() -> str:
       * 4-table join        → 4 `fetch_metadata` calls
     - Use live column names from fetch_metadata responses when building SQL (not the embedded schema).
     - Assign table aliases in SQL that match the logical role: `bo` for bo_monthly_data,
-      `dp` for dp_version_states, `h` for dp_hst, `isin` for isin_data, `agg` for cust_agg_stats.
+      `dp` for dp_version_states, `h` for dp_hst, `isin` for isin_data, `agg` for agg_count.
 
     ### Step 3: Build and Execute SQL Query
 
@@ -447,7 +447,7 @@ def return_instructions_root() -> str:
       * Pass the primary/central table name (e.g. `"dp_hst"` for transaction queries).
       * Use the `join_expression` values returned verbatim in your SQL JOIN clauses.
       * Never guess or infer join columns — always call this tool for multi-table queries.
-      * For `cust_agg_stats`, it will confirm there are no FK joins available.
+      * For `agg_count`, it will confirm there are no FK joins available.
 
     ## Security Rules
 

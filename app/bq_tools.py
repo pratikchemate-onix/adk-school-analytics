@@ -433,8 +433,8 @@ _RECOMMENDED_JOIN_PATHS: dict[str, str] = {
         "INNER JOIN bo_monthly_data ON dp_hst.dp_hst_br_id = bo_monthly_data.brnch_numb "
         "INNER JOIN isin_data ON dp_hst.dp_hst_ccy_cde = isin_data.isin"
     ),
-    "cust_agg_stats": (
-        "Query cust_agg_stats standalone — it has no FK relationships. "
+    "agg_count": (
+        "Query agg_count standalone — it has no FK relationships. "
         "Filter by catg, sub_catg, sub_catg2, and process_date."
     ),
 }
@@ -456,7 +456,7 @@ def get_table_relationships(
     Args:
         table_name: The BigQuery table to look up relationships for.
             Valid values: "dp_hst", "bo_monthly_data", "dp_version_states",
-            "isin_data", "cust_agg_stats", or "all".
+            "isin_data", "agg_count", or "all".
 
     Returns:
         A dictionary with "status" key ("success" or "error").
@@ -465,7 +465,7 @@ def get_table_relationships(
             join_type, join_expression, and description), and
             "recommended_join_paths" (pre-built path strings for common
             multi-table patterns).
-        Special case — "cust_agg_stats": returns empty relationships list
+        Special case — "agg_count": returns empty relationships list
             and a note explaining it must be queried standalone.
         On error: includes "error_message" with list of valid table names.
     """
@@ -476,20 +476,20 @@ def get_table_relationships(
 
     normalized = table_name.strip().lower()
 
-    # cust_agg_stats has no FK relationships — return early with explanation
-    if normalized == "cust_agg_stats":
+    # agg_count has no FK relationships — return early with explanation
+    if normalized == "agg_count":
         return {
             "status": "success",
-            "table_name": "cust_agg_stats",
+            "table_name": "agg_count",
             "relationships": [],
             "note": (
-                "cust_agg_stats has NO foreign key relationships to any other table. "
+                "agg_count has NO foreign key relationships to any other table. "
                 "It is a pre-aggregated monthly summary table (category counts, demat counts). "
                 "Query it standalone using filters on catg, sub_catg, sub_catg2, and process_date. "
-                "Do NOT attempt to JOIN cust_agg_stats to other tables via column equality."
+                "Do NOT attempt to JOIN agg_count to other tables via column equality."
             ),
             "recommended_join_paths": {
-                "cust_agg_stats": _RECOMMENDED_JOIN_PATHS["cust_agg_stats"]
+                "agg_count": _RECOMMENDED_JOIN_PATHS["agg_count"]
             },
         }
 
@@ -504,7 +504,7 @@ def get_table_relationships(
 
     # Filter to entries that involve the requested table
     known_tables = {
-        "dp_hst", "bo_monthly_data", "dp_version_states", "isin_data", "cust_agg_stats"
+        "dp_hst", "bo_monthly_data", "dp_version_states", "isin_data", "agg_count"
     }
     if normalized not in known_tables:
         return {
