@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { DARK_COLORS } from './chartUtils'
+import { DARK_COLORS, LIGHT_COLORS } from './chartUtils'
 
 // Compute a font scale factor (0.72 – 1.0) from the current viewport width.
 function computeFontScale(w) {
@@ -10,8 +10,29 @@ function computeFontScale(w) {
   return 1.0
 }
 
+function readTheme() {
+  if (typeof document === 'undefined') return 'dark'
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
+}
+
+// Tracks the app's `data-theme` attribute (set by the theme toggle in
+// app/page.jsx) so components can react to light/dark switches.
+export function useAppTheme() {
+  const [theme, setTheme] = useState(readTheme)
+
+  useEffect(() => {
+    const target = document.documentElement
+    const observer = new MutationObserver(() => setTheme(readTheme()))
+    observer.observe(target, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+
+  return theme
+}
+
 export function useThemeColors() {
   const [fontScale, setFontScale] = useState(1.0)
+  const theme = useAppTheme()
 
   useEffect(() => {
     // ── Font scale (viewport-responsive) ─────────────────────────────────────
@@ -21,11 +42,8 @@ export function useThemeColors() {
     return () => window.removeEventListener('resize', updateScale)
   }, [])
 
-  // Charts are ALWAYS dark — they live in their own dark universe regardless
-  // of whether the app shell is in light or dark mode. This keeps charts
-  // vibrant and consistent no matter what the user's theme preference is.
   return {
-    colors: DARK_COLORS,
+    colors: theme === 'light' ? LIGHT_COLORS : DARK_COLORS,
     fontScale,
   }
 }

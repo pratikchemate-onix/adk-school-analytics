@@ -14,37 +14,22 @@ function FallbackDataView({ spec }) {
   const cols = rows.length > 0 ? Object.keys(rows[0]) : []
   return (
     <div style={{ padding: '16px 20px' }}>
-      <p style={{ color: '#f28b82', marginBottom: 12, fontSize: 13 }}>
+      <p style={{ color: 'var(--chart-error-color)', marginBottom: 12, fontSize: 13 }}>
         Chart type <strong>"{spec.type}"</strong> is not supported — showing raw data instead.
       </p>
       {rows.length > 0 ? (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
-            <thead>
+        <div className="md-table-wrapper">
+          <table className="md-table">
+            <thead className="md-thead">
               <tr>
-                {cols.map(c => (
-                  <th key={c} style={{
-                    padding: '6px 12px',
-                    borderBottom: '1px solid #3a4060',
-                    color: '#bdc1c6',
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap',
-                    fontWeight: 600,
-                  }}>
-                    {c}
-                  </th>
-                ))}
+                {cols.map(c => <th key={c} className="md-th">{c}</th>)}
               </tr>
             </thead>
             <tbody>
               {rows.slice(0, 50).map((row, i) => (
-                <tr key={i} style={{ background: i % 2 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                <tr key={i} className="md-tr">
                   {cols.map(c => (
-                    <td key={c} style={{
-                      padding: '5px 12px',
-                      borderBottom: '1px solid #1e2130',
-                      color: '#e8eaed',
-                    }}>
+                    <td key={c} className="md-td">
                       {typeof row[c] === 'number' ? formatValue(row[c]) : String(row[c] ?? '')}
                     </td>
                   ))}
@@ -53,13 +38,13 @@ function FallbackDataView({ spec }) {
             </tbody>
           </table>
           {rows.length > 50 && (
-            <p style={{ color: '#9aa0a6', fontSize: 11, marginTop: 8 }}>
+            <p style={{ color: 'var(--chart-hint-color)', fontSize: 11, marginTop: 8 }}>
               Showing first 50 of {rows.length} rows.
             </p>
           )}
         </div>
       ) : (
-        <p style={{ color: '#9aa0a6', fontSize: 12 }}>No data in spec.</p>
+        <p style={{ color: 'var(--chart-hint-color)', fontSize: 12 }}>No data in spec.</p>
       )}
     </div>
   )

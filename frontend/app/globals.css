@@ -21,11 +21,14 @@
   --table-header-bg: #2d2e30;
   --table-row-alt-bg: rgba(255, 255, 255, 0.03);
   --table-border: #3c4043;
-  /* Chart card — deep navy + vibrant glow accents */
+  /* Chart card — dark mode: deep navy + vibrant glow accents */
   --chart-card-bg: #0d1117;
   --chart-card-border: #22d3ee40;
   --chart-card-glow: rgba(34, 211, 238, 0.08);
   --chart-title-color: #f0f9ff;
+  --chart-subtitle-color: #94a3b8;
+  --chart-hint-color: #64748b;
+  --chart-error-color: #f28b82;
   --chart-accent-1: #22d3ee;
   --chart-accent-2: #e879f9;   /* electric fuchsia — matches new palette [1] */
   --chart-accent-3: #34d399;
@@ -53,11 +56,14 @@
   --table-header-bg: #f1f3f4;
   --table-row-alt-bg: rgba(0, 0, 0, 0.02);
   --table-border: #dadce0;
-  /* Chart card — ALWAYS dark navy regardless of app theme */
-  --chart-card-bg: #0d1117;
+  /* Chart card — light mode: white card */
+  --chart-card-bg: #ffffff;
   --chart-card-border: #22d3ee40;
   --chart-card-glow: rgba(34, 211, 238, 0.08);
-  --chart-title-color: #f0f9ff;
+  --chart-title-color: #0f172a;
+  --chart-subtitle-color: #64748b;
+  --chart-hint-color: #475569;
+  --chart-error-color: #dc2626;
   --chart-accent-1: #22d3ee;
   --chart-accent-2: #e879f9;   /* electric fuchsia — matches new palette [1] */
   --chart-accent-3: #34d399;
@@ -674,8 +680,7 @@ button {
 
 .chart-card-subtitle {
   font-size: clamp(11px, 1.4vw, 12px);
-  /* Fixed: chart cards are always dark — don't follow theme's --text-secondary */
-  color: #94a3b8;
+  color: var(--chart-subtitle-color);
   margin-top: 4px;
   line-height: 1.4;
   letter-spacing: 0.01em;
@@ -712,8 +717,7 @@ button {
   gap: 6px;
   padding: 9px 22px 14px;
   font-size: clamp(10px, 1.3vw, 11.5px);
-  /* Fixed: always readable on dark card */
-  color: #64748b;
+  color: var(--chart-hint-color);
   border-top: 1px solid var(--chart-card-border);
   margin-top: 4px;
   background: linear-gradient(0deg, rgba(34,211,238,0.06) 0%, transparent 100%);

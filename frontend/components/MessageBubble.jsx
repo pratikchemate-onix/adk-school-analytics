@@ -4,8 +4,9 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import ChartRenderer from './charts/ChartRenderer'
+import { useAppTheme } from '../lib/useThemeColors'
 
 function ThinkingIndicator() {
   return (
@@ -31,6 +32,7 @@ function ThinkingIndicator() {
 
 function CodeBlock({ language, value }) {
   const [copied, setCopied] = useState(false)
+  const theme = useAppTheme()
 
   const handleCopy = () => {
     navigator.clipboard.writeText(value).then(() => {
@@ -59,13 +61,13 @@ function CodeBlock({ language, value }) {
       </div>
       <SyntaxHighlighter
         language={language || 'text'}
-        style={oneDark}
+        style={theme === 'light' ? oneLight : oneDark}
         customStyle={{
           margin: 0,
           borderRadius: '0 0 10px 10px',
           fontSize: '13px',
           padding: '16px',
-          background: '#1a1b1e',
+          background: 'var(--code-bg)',
         }}
         showLineNumbers={false}
         wrapLines={true}
