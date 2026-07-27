@@ -18,18 +18,18 @@ export const DARK_PALETTE = [
 ]
 
 export const LIGHT_PALETTE = [
-  '#0e7490', // [0]  Deep Cyan
-  '#7c3aed', // [1]  Deep Violet
-  '#059669', // [2]  Deep Emerald
-  '#ea580c', // [3]  Deep Orange
-  '#db2777', // [4]  Deep Pink
-  '#2563eb', // [5]  Deep Blue
-  '#ca8a04', // [6]  Deep Amber
-  '#16a34a', // [7]  Deep Green
-  '#c026d3', // [8]  Deep Fuchsia
-  '#0284c7', // [9]  Deep Sky
-  '#dc2626', // [10] Deep Red
-  '#0d9488', // [11] Deep Teal
+  '#06b6d4', // [0]  Vibrant Cyan (was #0e7490)
+  '#a855f7', // [1]  Vivid Purple (was #7c3aed)
+  '#10b981', // [2]  Bright Emerald (was #059669)
+  '#f97316', // [3]  Vibrant Orange (was #ea580c)
+  '#ec4899', // [4]  Bright Pink (was #db2777)
+  '#3b82f6', // [5]  Bright Blue (was #2563eb)
+  '#eab308', // [6]  Bright Yellow (was #ca8a04)
+  '#22c55e', // [7]  Vivid Green (was #16a34a)
+  '#d946ef', // [8]  Bright Fuchsia (was #c026d3)
+  '#0ea5e9', // [9]  Vivid Sky (was #0284c7)
+  '#ef4444', // [10] Bright Red (was #dc2626)
+  '#14b8a6', // [11] Bright Teal (was #0d9488)
 ]
 
 // Keep for backward-compat imports
@@ -114,8 +114,8 @@ function perBarHGradient(color) {
   return {
     type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
     colorStops: [
-      { offset: 0,    color: color + '28' }, // ~16% — nearly invisible start
-      { offset: 0.4,  color: color + 'aa' }, // ~67% — mid
+      { offset: 0,    color: color + '50' }, // ~31% — more visible start for light mode
+      { offset: 0.4,  color: color + 'cc' }, // ~80% — brighter mid
       { offset: 1,    color: color },         // 100% — full vibrant end
     ],
   }
@@ -126,8 +126,8 @@ function hbarSeriesGradient(color) {
   return {
     type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
     colorStops: [
-      { offset: 0,   color: color + '40' },
-      { offset: 0.5, color: color + 'bb' },
+      { offset: 0,   color: color + '60' }, // ~38% — more visible
+      { offset: 0.5, color: color + 'cc' }, // ~80% — brighter mid
       { offset: 1,   color: color },
     ],
   }
@@ -139,7 +139,7 @@ function barGradient(color) {
     type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
     colorStops: [
       { offset: 0,   color: color },
-      { offset: 1,   color: color + '70' }, // 44% — was 'aa', now brighter fade
+      { offset: 1,   color: color + 'bb' }, // 73% — stronger gradient for light mode glow
     ],
   }
 }
@@ -149,9 +149,9 @@ function areaGradient(color) {
   return {
     type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
     colorStops: [
-      { offset: 0,   color: color + '95' }, // 58% — was '70'
-      { offset: 0.5, color: color + '45' }, // 27% — was '28'
-      { offset: 1,   color: color + '08' }, // ~3%
+      { offset: 0,   color: color + 'bb' }, // 73% — increased from 58%
+      { offset: 0.5, color: color + '60' }, // 38% — increased from 27%
+      { offset: 1,   color: color + '15' }, // ~8% — increased from 3%
     ],
   }
 }

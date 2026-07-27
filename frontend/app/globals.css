@@ -37,7 +37,7 @@
 [data-theme='light'] {
   --primary-bg: #ffffff;
   --secondary-bg: #f8f9fa;
-  --tertiary-bg: #f1f3f4;
+  --tertiary-bg: #f0f4f9;
   --surface-bg: #e8eaed;
   --text-primary: #202124;
   --text-secondary: #5f6368;
@@ -56,8 +56,8 @@
   --table-header-bg: #f1f3f4;
   --table-row-alt-bg: rgba(0, 0, 0, 0.02);
   --table-border: #dadce0;
-  /* Chart card — light mode: white card */
-  --chart-card-bg: #ffffff;
+  /* Chart card — light mode: cool blue-gray (softer than pure white) */
+  --chart-card-bg: #f0f4f9;
   --chart-card-border: #22d3ee40;
   --chart-card-glow: rgba(34, 211, 238, 0.08);
   --chart-title-color: #0f172a;
