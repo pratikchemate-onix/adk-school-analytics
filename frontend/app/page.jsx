@@ -88,7 +88,21 @@ export default function Home() {
           return updated
         })
       },
-      () => setIsLoading(false),
+      () => {
+        setIsLoading(false)
+        // If the agent message is still empty when streaming ends, the model
+        // returned finish_reason:'error' or timed out — show a clear message.
+        setMessages((current) => {
+          if (agentIdx < 0 || agentIdx >= current.length) return current
+          if (current[agentIdx].text.trim() !== '') return current
+          const updated = [...current]
+          updated[agentIdx] = {
+            ...updated[agentIdx],
+            text: '_The model did not return a response. This is usually a rate limit or timeout on the free tier. Please wait a moment and try again._',
+          }
+          return updated
+        })
+      },
       (error) => {
         console.error('Stream error:', error)
         setIsLoading(false)

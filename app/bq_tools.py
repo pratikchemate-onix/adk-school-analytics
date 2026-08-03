@@ -18,6 +18,44 @@ _bq_client: bigquery.Client | None = None
 _metadata_cache: dict[str, tuple[dict[str, Any], float]] = {}
 _METADATA_CACHE_TTL = 600  # 10 minutes
 
+# SQL logger — separate logger so it can be filtered independently
+_sql_logger = logging.getLogger(__name__ + ".sql")
+
+
+def _rewrite_sum_safe_cast(query: str) -> str:
+    """Wrap every SUM(expr) with SUM(SAFE_CAST(expr AS FLOAT64)).
+
+    This prevents 'No matching signature for SUM on STRING' BigQuery errors
+    when the LLM generates SUM() on a STRING-typed column.  SAFE_CAST returns
+    NULL for values that cannot be converted, so numeric-string columns still
+    aggregate correctly while pure-text columns silently return NULL instead of
+    crashing.
+
+    Only rewrites bare SUM(expr) forms — does not touch SAFE_CAST that is
+    already present.
+    """
+    # Match SUM( ... ) that does NOT already contain SAFE_CAST to avoid double-wrapping.
+    # Handles: SUM(col), SUM(t.col), SUM(DISTINCT col) — but not SUM(SAFE_CAST(...))
+    pattern = re.compile(
+        r'\bSUM\s*\(\s*(?!SAFE_CAST\b)((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*)\s*\)',
+        re.IGNORECASE,
+    )
+
+    def _wrap(m: re.Match) -> str:
+        inner = m.group(1).strip()
+        # Preserve DISTINCT keyword if present: SUM(DISTINCT col) → SUM(DISTINCT SAFE_CAST(col AS FLOAT64))
+        distinct_match = re.match(r'^(DISTINCT\s+)', inner, re.IGNORECASE)
+        if distinct_match:
+            prefix = distinct_match.group(1)
+            rest = inner[len(prefix):]
+            return f"SUM({prefix}SAFE_CAST({rest} AS FLOAT64))"
+        return f"SUM(SAFE_CAST({inner} AS FLOAT64))"
+
+    rewritten = pattern.sub(_wrap, query)
+    if rewritten != query:
+        _sql_logger.info("Rewrote SUM() → SUM(SAFE_CAST(... AS FLOAT64)):\nBefore: %s\nAfter:  %s", query, rewritten)
+    return rewritten
+
 
 def _get_max_query_calls() -> int:
     return int(os.getenv("BQ_MAX_QUERIES_PER_INVOCATION", "10"))
@@ -281,6 +319,13 @@ def run_query(
             "error_message": error_msg,
         }
     try:
+        # Log the raw SQL so we can see exactly what the model generated.
+        _sql_logger.info("Executing SQL:\n%s", query)
+
+        # Server-side safety: rewrite SUM(col) → SUM(SAFE_CAST(col AS FLOAT64))
+        # so that STRING-typed columns don't crash BigQuery.
+        query = _rewrite_sum_safe_cast(query)
+
         client = _get_client(tool_context)
         if dry_run:
             job_config = bigquery.QueryJobConfig(dry_run=True, use_query_cache=False)

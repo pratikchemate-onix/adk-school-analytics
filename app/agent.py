@@ -4,9 +4,10 @@ import logging
 import os
 from datetime import date
 
-from google.adk.agents import LlmAgent
+from google.adk.agents import LlmAgent, Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.apps import App
+from google.adk.models.lite_llm import LiteLlm
 from google.cloud import bigquery
 from google.genai import types
 
@@ -24,42 +25,131 @@ logger = logging.getLogger(__name__)
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
 
-def _load_table_schemas() -> str:
-    """Fetch all table schemas from BigQuery at module load time."""
+def _load_table_schemas() -> dict:
+    """Load full column-level schemas from BigQuery at module startup.
+
+    Pre-loading eliminates per-query fetch_metadata tool calls for known tables,
+    which is the primary source of latency in multi-step agent workflows.
+
+    Returns:
+        dict with keys:
+          'schema_text'  — formatted string injected into the system prompt
+          'known_tables' — list of table IDs that have been pre-loaded
+    """
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "search-ahmed")
     dataset_id = "cdsl_agentic_demo"
-
-    schema_parts = []
+    schema_parts: list[str] = []
+    known_tables: list[str] = []
 
     try:
         client = bigquery.Client(project=project_id)
+
+        # Share this client with bq_tools so run_query doesn't pay another
+        # ~24-second initialization cost on the first query call.
+        from . import bq_tools as _bq_tools_mod
+        _bq_tools_mod._bq_client = client
+        logger.info("Shared BigQuery client with bq_tools (avoids double-init).")
+
         dataset_ref = f"{project_id}.{dataset_id}"
 
         for table_item in client.list_tables(dataset_ref):
             table = client.get_table(table_item.reference)
-            columns = []
-            for field in table.schema:
-                col_desc = f" — {field.description}" if field.description else ""
-                columns.append(f"  - {field.name} ({field.field_type}){col_desc}")
+            known_tables.append(table.table_id)
 
-            schema_parts.append(f"### {table.table_id}\n" + "\n".join(columns))
+            # Compact schema: column names with short type markers for non-STRING fields.
+            # STRING is the default (no marker). Markers prevent type errors in SQL
+            # e.g. the model trying SUM() on a STRING column.
+            def _type_tag(ft: str) -> str:
+                ft = ft.upper()
+                if ft in ("INTEGER", "INT64"):
+                    return ":INT"
+                if ft in ("FLOAT", "FLOAT64", "NUMERIC", "BIGNUMERIC"):
+                    return ":FLT"
+                if ft in ("DATE", "DATETIME", "TIMESTAMP", "TIME"):
+                    return ":DT"
+                if ft == "BOOLEAN":
+                    return ":BOOL"
+                return ""  # STRING / RECORD / BYTES — no marker needed
 
-        logger.info(f"Loaded schemas for {len(schema_parts)} tables from {dataset_ref}")
-        return "\n\n".join(schema_parts)
+            col_parts = [
+                f"{field.name}{_type_tag(field.field_type)}"
+                for field in table.schema
+            ]
+
+            schema_parts.append(
+                f"{table.table_id}: {', '.join(col_parts)}"
+            )
+
+        schema_text = "\n".join(schema_parts)
+        logger.info(
+            f"Pre-loaded full schemas for {len(known_tables)} tables "
+            f"from {dataset_ref}: {known_tables}"
+        )
+        logger.info("Injected schema text:\n%s", schema_text)
+        return {
+            "schema_text": schema_text,
+            "known_tables": known_tables,
+        }
 
     except Exception as e:
         logger.warning(
-            f"Could not load table schemas from BigQuery: {e}. Agent will rely on tools for discovery."
+            f"Could not pre-load table schemas from BigQuery: {e}. "
+            "Agent will use fetch_metadata tool for all tables."
         )
-        return "Schema not loaded. Use list_tables and fetch_metadata tools to discover table structures."
+        return {
+            "schema_text": (
+                "Schemas not pre-loaded. Use list_tables and fetch_metadata "
+                "to discover table structures."
+            ),
+            "known_tables": [],
+        }
 
 
-_TABLE_SCHEMAS = _load_table_schemas()
+_SCHEMA_DATA = _load_table_schemas()
+_TABLE_SCHEMAS: str = _SCHEMA_DATA["schema_text"]
+_KNOWN_TABLES: list[str] = _SCHEMA_DATA["known_tables"]
 
 
 def return_instructions_root() -> str:
     result_limit = int(os.environ.get("BQ_RESULT_LIMIT", 100))
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "search-ahmed")
+    use_compact = os.getenv("USE_COMPACT_INSTRUCTIONS", "true").lower() == "true"
+
+    if use_compact:
+        return f"""You are a read-only BigQuery SQL analyst for CDSL securities data.
+Project=`{project_id}` | Dataset=`cdsl_agentic_demo` | Max rows={result_limit}
+
+## Schemas (no suffix=STRING, :INT=integer, :FLT=float, :DT=date/time, :BOOL=boolean)
+{_TABLE_SCHEMAS}
+
+## Hard rules
+- NEVER call `fetch_metadata` for the 4 tables above — schema is already here.
+- NEVER guess JOIN keys — call `get_table_relationships(table)` first for any multi-table query.
+- ONLY SELECT/WITH — never INSERT/UPDATE/DELETE/CREATE/DROP/ALTER.
+- SUM/AVG only on :INT or :FLT columns. Use COUNT(*) to count rows (safe on all types).
+- Always use fully-qualified names: `` `{project_id}.cdsl_agentic_demo.<table>` ``
+- Always add LIMIT {result_limit}.
+
+## Steps (follow exactly)
+1. Pick table(s) from schema above.
+2. For JOINs: call `get_table_relationships(primary_table)` → use returned join keys verbatim.
+3. Call `run_query(sql)`. On error: fix SQL and retry (max 3 attempts total).
+4. Output: **SQL executed** header + ```sql block + markdown results table.
+5. If result has ≥2 rows AND a numeric column → output one ```chart block (see format below).
+
+## Chart format
+Pick type: `bar` (categories, short labels) | `hbar` (long labels) | `line`/`area` (time trend) | `pie` (≤8 slices, part-of-whole) | `stacked_bar` (2+ segments per category)
+
+For bar/hbar/line/area/stacked_bar:
+```chart
+{{"type":"bar","title":"TITLE","x_key":"CAT_COL","y_keys":["NUM_COL"],"data":[{{"CAT_COL":"A","NUM_COL":100}},{{"CAT_COL":"B","NUM_COL":200}}]}}
+```
+For pie:
+```chart
+{{"type":"pie","title":"TITLE","name_key":"CAT_COL","value_key":"NUM_COL","data":[{{"CAT_COL":"A","NUM_COL":100}}]}}
+```
+Rules: exact column names from result | cap 20 rows (8 for pie) | valid JSON (no trailing commas) | add 2 sentences of insight after the chart block.
+Optional drill-down: add `"drill_down":{{"dimension":"next-level","filter_key":"CAT_COL","prompt_template":"Show <value> breakdown"}}` when a natural sub-level exists."""
 
     return f"""
     You are a read-only BigQuery analyst agent. You execute SQL queries against CDSL securities data and return results to users.
@@ -70,82 +160,15 @@ def return_instructions_root() -> str:
     - Project: `{project_id}` (always use this project ID in queries)
     - Dataset: `cdsl_agentic_demo` (always query tables from this dataset)
 
-    ## Known Table Schemas
+    ## Available Tables
 
-    The following tables are available. Use this schema to quickly identify the right table for the user's query. Then call `fetch_metadata` on the matched table to get live schema before building SQL.
+    The following tables exist in the dataset. Always call `fetch_metadata(table_name)` to get the full schema before writing SQL queries.
 
     {_TABLE_SCHEMAS}
 
-    ## Table Relationships and Join Keys
+    ## Table Relationships
 
-    These are the verified foreign key relationships between all 5 tables in cdsl_agentic_demo.
-    Use this map to plan JOIN structure. For any multi-table query, ALWAYS call
-    `get_table_relationships(table_name)` before building SQL to confirm exact join columns.
-
-    ### All Verified Join Paths
-
-    | From Table        | From Column       | To Table           | To Column      | Join Type  | When to Use                                          |
-    |-------------------|-------------------|--------------------|----------------|------------|------------------------------------------------------|
-    | dp_hst            | dp_hst_br_id      | dp_version_states  | dp_id          | INNER JOIN | Transactions → Branch master info                    |
-    | dp_hst            | dp_hst_ccy_cde    | isin_data          | isin           | INNER JOIN | Transactions → Security (ISIN) details               |
-    | dp_hst            | dp_hst_br_id      | bo_monthly_data    | brnch_numb     | INNER JOIN | Transactions → Customer accounts at same branch      |
-    | bo_monthly_data   | brnch_numb        | dp_version_states  | dp_id          | INNER JOIN | Customer → Exact branch master record                |
-    | bo_monthly_data   | parent_dp         | dp_version_states  | dp_id          | LEFT JOIN  | Customer → Parent branch's own master record         |
-    | bo_monthly_data   | parent_dp         | dp_version_states  | parent_dp_id   | INNER JOIN | Customer → Parent group analytics (PREFERRED)        |
-
-    ### bo_monthly_data to dp_version_states — 3 Paths Explained
-
-    There are three ways to join these two tables. Pick based on what the user needs:
-
-    - `bo.brnch_numb = dp.dp_id`           — exact branch match. Use when you need the branch record for each customer account.
-    - `bo.parent_dp = dp.dp_id`            — parent record lookup. Use when you need the parent DP's own master row.
-    - `bo.parent_dp = dp.parent_dp_id`     — PREFERRED for group analytics. Produces the most matched rows.
-                                              Use when grouping customers and branches under the same parent DP umbrella.
-
-    ### agg_count — No Foreign Keys
-
-    agg_count has NO FK relationship to any other table. It is a pre-aggregated monthly
-    summary (category counts, unique demat counts). Query it standalone. Filter by catg,
-    sub_catg, sub_catg2, and process_date. Do NOT attempt to JOIN it to other tables.
-
-    ### Join Decision Matrix
-
-    Use this to decide which tables and join path to use based on what the user is asking:
-
-    | User's question involves...                           | Tables required                                    | Join condition to use                                              |
-    |-------------------------------------------------------|----------------------------------------------------|--------------------------------------------------------------------|
-    | Customer demographics + branch location / DP type     | bo_monthly_data + dp_version_states                | bo.brnch_numb = dp.dp_id                                          |
-    | Analytics grouped by parent DP / DP group             | bo_monthly_data + dp_version_states                | bo.parent_dp = dp.parent_dp_id  (PREFERRED)                       |
-    | Transactions + which security was traded              | dp_hst + isin_data                                 | h.dp_hst_ccy_cde = isin.isin                                       |
-    | Transactions + which branch processed them            | dp_hst + dp_version_states                         | h.dp_hst_br_id = dp.dp_id                                         |
-    | Transactions + customer account details               | dp_hst + bo_monthly_data                           | h.dp_hst_br_id = bo.brnch_numb                                    |
-    | Transactions + branch info + security details         | dp_hst + dp_version_states + isin_data             | both dp_hst join conditions above                                  |
-    | Full cross-table (all dimensions)                     | dp_hst + dp_version_states + bo_monthly_data + isin_data | all three dp_hst join conditions                             |
-    | Monthly KPI / category aggregates / demat counts      | agg_count (standalone)                        | no JOIN — filter by catg, sub_catg, process_date                  |
-
-    ## Semantic Reasoning for Business Terms
-
-    Users often express queries using business terminology or composite phrases that do not exactly match column names. You must infer the correct column mappings using the column descriptions above.
-
-    **Process:**
-    1. Break the user's term into component concepts
-    2. Search column descriptions for relevant keywords
-    3. Map each concept to the most appropriate column(s)
-    4. Construct the query — do NOT ask for clarification unless the term is truly ambiguous with no reasonable match
-
-    **Examples:**
-    - "pancard" or "pan" → `pan_adhaar_linked` column in `bo_monthly_data`
-    - "with balance" or "withbal" → `balance > 0`
-    - "without balance" or "withoutbal" → `balance = 0 OR balance IS NULL`
-    - "active accounts" → `bo_acct_sts = 'ACTIVE'` in `bo_monthly_data`
-    - "dormant accounts" → `dormant_flag = 'D'` in `bo_monthly_data`
-    - "by tier" or "tier-wise" → `tier` column for grouping
-    - "by state" or "state-wise" → `cust_addr_state_std` or `dp_state` column
-
-    **Composite queries:**
-    - "common_pancard_count_withbal_withoutbal" → Break into: PAN linkage + balance status. Query `bo_monthly_data`, group by `pan_adhaar_linked`, count where `balance > 0` vs `balance = 0`
-
-    Always attempt to construct a reasonable query based on column descriptions before asking for clarification.
+    For multi-table queries, ALWAYS call `get_table_relationships(table_name)` to get exact join columns.
 
     ## Query Execution Workflow
 
@@ -155,33 +178,28 @@ def return_instructions_root() -> str:
 
     - Parse the user's natural language request
     - Check every query against this keyword-to-table mapping:
-      * "transaction / history / debit / credit / tran_qty / tran_type / tran_code" → `dp_hst`
-      * "customer / account / balance / dormant / PAN / nominee / nil_status / BSDA" → `bo_monthly_data`
-      * "branch / DP / region / dp_state / dp_type / dp_status / dp_name" → `dp_version_states`
+      * "customer / account / balance / dormant / PAN / nominee / nil_status / BSDA / gender / tier" → `bo_monthly_data`
+      * "branch / DP / region / dp_state / dp_type / dp_status / dp_name / parent_dp" → `dp_version_states`
       * "ISIN / security / equity / debt / MF / asset_class / index_status / security_type" → `isin_data`
       * "category / aggregate / KPI / sub_catg / monthly stats / demat count summary" → `agg_count`
     - Count the number of distinct tables identified:
       * 1 table → single-table query. Skip `get_table_relationships`. Go to Step 2.
-      * 2+ tables → multi-table query. ALWAYS call `get_table_relationships(primary_table)` first,
-                    where primary_table is the central/fact table (prefer `dp_hst` if transactions
-                    are involved, otherwise the table with the most join paths to others).
-                    Use the returned `join_expression` values verbatim in your SQL — do NOT guess join columns.
+      * 2+ tables → multi-table query. ALWAYS call `get_table_relationships(primary_table)` first.
+                    Use the returned `join_expression` values verbatim — do NOT guess join columns.
     - If the table is still unclear after keyword matching, call `list_tables` to discover available tables.
     - After table identification (and relationship lookup for multi-table), proceed to Step 2.
 
-    ### Step 2: Fetch Live Schema for ALL Relevant Tables
+    ### Step 2: Confirm Column Names for ALL Relevant Tables
 
-    - For EACH table involved in the query, call:
-      `fetch_metadata("cdsl_agentic_demo", <table_id>, project_id="{project_id}")`
-    - Fetch schemas in parallel intent — do not wait to fetch one before identifying the next.
-    - Do NOT begin writing SQL until you have schema responses for ALL tables in the query:
-      * Single-table query  → 1 `fetch_metadata` call
-      * 2-table join        → 2 `fetch_metadata` calls
-      * 3-table join        → 3 `fetch_metadata` calls
-      * 4-table join        → 4 `fetch_metadata` calls
-    - Use live column names from fetch_metadata responses when building SQL (not the embedded schema).
-    - Assign table aliases in SQL that match the logical role: `bo` for bo_monthly_data,
-      `dp` for dp_version_states, `h` for dp_hst, `isin` for isin_data, `agg` for agg_count.
+    Table schemas are pre-loaded in the system prompt above. For the 4 known tables
+    (`bo_monthly_data`, `dp_version_states`, `isin_data`, `agg_count`),
+    use the pre-loaded column names directly — do NOT call `fetch_metadata` for these.
+
+    Only call `fetch_metadata("cdsl_agentic_demo", <table_id>, project_id="{project_id}")`
+    if the user references a table NOT in the pre-loaded list above.
+
+    - Assign table aliases in SQL: `bo` for bo_monthly_data, `dp` for dp_version_states,
+      `isin` for isin_data, `agg` for agg_count.
 
     ### Step 3: Build and Execute SQL Query
 
@@ -320,102 +338,85 @@ def return_instructions_root() -> str:
 
     ## Multi-Table SQL Examples
 
-    Use these as structural templates when building multi-table queries. Always substitute
-    column names from live `fetch_metadata` responses. Table aliases must match:
-    `bo` = bo_monthly_data, `dp` = dp_version_states, `h` = dp_hst, `isin` = isin_data.
+    Use these as structural templates when building multi-table queries.
+    Table aliases: `bo` = bo_monthly_data, `dp` = dp_version_states,
+                   `isin` = isin_data, `agg` = agg_count.
 
-    ### Example 1: Customer accounts + branch info (2 tables)
+    ### Example 1: Dormant accounts by branch state (bo + dp)
     -- "Show dormant accounts with their branch state"
     SELECT
       dp.dp_id,
       dp.dp_name,
       dp.dp_brnch_state,
       bo.tier,
-      bo.dormant_flag,
+      COUNT(*) AS account_count
+    FROM `{project_id}.cdsl_agentic_demo.bo_monthly_data` bo
+    INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
+      ON bo.brnch_numb = dp.dp_id
+    WHERE bo.dormant_flag = 'D'
+    GROUP BY dp.dp_id, dp.dp_name, dp.dp_brnch_state, bo.tier
+    ORDER BY account_count DESC
+    LIMIT {result_limit};
+
+    ### Example 2: Account count and balance by DP region (bo + dp)
+    -- "Show accounts and total balance grouped by region"
+    SELECT
+      dp.dp_region,
+      dp.dp_brnch_state,
       COUNT(*) AS account_count,
       SUM(bo.balance) AS total_balance
     FROM `{project_id}.cdsl_agentic_demo.bo_monthly_data` bo
     INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
       ON bo.brnch_numb = dp.dp_id
-    WHERE bo.dormant_flag = 'D'
-    GROUP BY dp.dp_id, dp.dp_name, dp.dp_brnch_state, bo.tier, bo.dormant_flag
+    GROUP BY dp.dp_region, dp.dp_brnch_state
+    ORDER BY total_balance DESC
+    LIMIT {result_limit};
+
+    ### Example 3: Securities by asset class (isin_data single-table)
+    -- "How many securities per asset class?"
+    SELECT
+      asset_class,
+      COUNT(*) AS security_count
+    FROM `{project_id}.cdsl_agentic_demo.isin_data`
+    GROUP BY asset_class
+    ORDER BY security_count DESC
+    LIMIT {result_limit};
+
+    ### Example 4: Monthly demat counts from aggregates (agg_count single-table)
+    -- "Show monthly demat account summary"
+    SELECT
+      month,
+      category,
+      sub_catg,
+      demat_cmnt,
+      uniq_demat_cnt
+    FROM `{project_id}.cdsl_agentic_demo.agg_count`
+    ORDER BY month DESC
+    LIMIT {result_limit};
+
+    ### Example 5: Active accounts by tier and branch state (bo + dp)
+    -- "Show active accounts broken down by customer tier and state"
+    SELECT
+      dp.dp_brnch_state,
+      bo.tier,
+      COUNT(*) AS account_count,
+      SUM(bo.balance) AS total_balance
+    FROM `{project_id}.cdsl_agentic_demo.bo_monthly_data` bo
+    INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
+      ON bo.brnch_numb = dp.dp_id
+    WHERE bo.bo_acct_sts = 'ACTIVE'
+    GROUP BY dp.dp_brnch_state, bo.tier
     ORDER BY account_count DESC
     LIMIT {result_limit};
 
-    ### Example 2: Transaction volume by security type (2 tables)
-    -- "Show transaction count and quantity by asset class"
-    SELECT
-      isin.asset_class,
-      isin.security_type_desc,
-      COUNT(*) AS transaction_count,
-      SUM(h.dp_hst_tran_qty) AS total_quantity
-    FROM `{project_id}.cdsl_agentic_demo.dp_hst` h
-    INNER JOIN `{project_id}.cdsl_agentic_demo.isin_data` isin
-      ON h.dp_hst_ccy_cde = isin.isin
-    GROUP BY isin.asset_class, isin.security_type_desc
-    ORDER BY transaction_count DESC
-    LIMIT {result_limit};
-
-    ### Example 3: Transaction count by branch region (2 tables)
-    -- "How many transactions per branch state?"
-    SELECT
-      dp.dp_region,
-      dp.dp_brnch_state,
-      COUNT(*) AS txn_count,
-      SUM(h.dp_hst_tran_qty) AS total_qty
-    FROM `{project_id}.cdsl_agentic_demo.dp_hst` h
-    INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
-      ON h.dp_hst_br_id = dp.dp_id
-    GROUP BY dp.dp_region, dp.dp_brnch_state
-    ORDER BY txn_count DESC
-    LIMIT {result_limit};
-
-    ### Example 4: Transaction quantity by branch state and asset class (3 tables)
-    -- "Show transaction volume broken down by state and security type"
-    SELECT
-      dp.dp_brnch_state,
-      isin.asset_class,
-      COUNT(*) AS txn_count,
-      SUM(h.dp_hst_tran_qty) AS total_qty
-    FROM `{project_id}.cdsl_agentic_demo.dp_hst` h
-    INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
-      ON h.dp_hst_br_id = dp.dp_id
-    INNER JOIN `{project_id}.cdsl_agentic_demo.isin_data` isin
-      ON h.dp_hst_ccy_cde = isin.isin
-    GROUP BY dp.dp_brnch_state, isin.asset_class
-    ORDER BY txn_count DESC
-    LIMIT {result_limit};
-
-    ### Example 5: Full 4-table join — active accounts with transactions by tier and security
-    -- "For active accounts, show transaction activity by customer tier and asset class"
-    SELECT
-      bo.tier,
-      isin.asset_class,
-      dp.dp_brnch_state,
-      COUNT(DISTINCT h.dp_hst_acct_nbr) AS unique_accounts,
-      COUNT(*) AS txn_count,
-      SUM(h.dp_hst_tran_qty) AS total_qty
-    FROM `{project_id}.cdsl_agentic_demo.dp_hst` h
-    INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
-      ON h.dp_hst_br_id = dp.dp_id
-    INNER JOIN `{project_id}.cdsl_agentic_demo.bo_monthly_data` bo
-      ON h.dp_hst_br_id = bo.brnch_numb
-    INNER JOIN `{project_id}.cdsl_agentic_demo.isin_data` isin
-      ON h.dp_hst_ccy_cde = isin.isin
-    WHERE bo.bo_acct_sts = 'ACTIVE'
-    GROUP BY bo.tier, isin.asset_class, dp.dp_brnch_state
-    ORDER BY total_qty DESC
-    LIMIT {result_limit};
-
-    ### Example 6: Customer count by parent DP group (bo + dp, parent join)
+    ### Example 6: Customer count by parent DP group (bo + dp)
     -- "How many customers does each parent DP group have?"
     SELECT
       dp.parent_dp_id,
       dp.dp_name,
       dp.dp_brnch_state,
       COUNT(*) AS customer_count,
-      SUM(bo.balance) AS total_balance,
-      SUM(bo.new_valuation) AS total_valuation
+      SUM(bo.balance) AS total_balance
     FROM `{project_id}.cdsl_agentic_demo.bo_monthly_data` bo
     INNER JOIN `{project_id}.cdsl_agentic_demo.dp_version_states` dp
       ON bo.parent_dp = dp.parent_dp_id
@@ -440,11 +441,11 @@ def return_instructions_root() -> str:
 
     ## When to Use Discovery Tools
 
-    - `list_tables`: Call only if the user mentions a table not in the known schemas.
-    - `fetch_metadata`: Call ALWAYS — once per table involved in the query (Step 2).
-      Do NOT skip it — live schema context is essential for correct SQL generation.
-    - `get_table_relationships`: Call for ANY query spanning 2 or more tables, BEFORE building SQL (Step 1).
-      * Pass the primary/central table name (e.g. `"dp_hst"` for transaction queries).
+    - `list_tables`: Call only if the user mentions a table not in the pre-loaded schemas.
+    - `fetch_metadata`: Call ONLY for tables NOT in the pre-loaded schema list. The 4 core tables
+      (`bo_monthly_data`, `dp_version_states`, `isin_data`, `agg_count`) are pre-loaded —
+      do NOT call fetch_metadata for them; use the column names from the system prompt directly.
+    - `get_table_relationships`: Call for ANY query spanning 2 or more tables, BEFORE building SQL.
       * Use the `join_expression` values returned verbatim in your SQL JOIN clauses.
       * Never guess or infer join columns — always call this tool for multi-table queries.
       * For `agg_count`, it will confirm there are no FK joins available.
@@ -602,32 +603,84 @@ def return_instructions_root() -> str:
 
 
 def return_global_instruction(ctx: ReadonlyContext) -> str:
-    return f"You are a helpful BigQuery analyst assistant for CDSL securities and depository data analytics.\nToday's date: {date.today()}\nYou help users query securities data using natural language by converting their requests into safe, optimized SQL queries."
+    # Keep this minimal — role + environment are already in return_instructions_root().
+    # Only inject dynamic values (date) here to avoid repeating static context every turn.
+    return f"Today's date: {date.today()}."
 
 
 
-root_agent = LlmAgent(
-    name="cdsl_bigquery_agent",
-    description="Agent to execute read-only BigQuery queries on CDSL securities data",
-    model=os.getenv("ROOT_AGENT_MODEL", "gemini-2.5-flash"),
-    instruction=return_instructions_root(),
-    global_instruction=return_global_instruction,
-    generate_content_config=types.GenerateContentConfig(
-        max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 4096)),
-        temperature=float(os.environ.get("TEMPERATURE", 1.0)),
-    ),
-    tools=[
-        list_tables,
-        fetch_metadata,
-        get_table_relationships,
-        run_query,
-        get_stock_quote,
-        get_company_profile,
-        get_stock_historical_prices,
-        get_stock_fundamentals,
-        search_stock_symbol,
+# Check if using LiteLLM with Groq, OpenRouter, or other providers
+USE_LITELLM = os.getenv("USE_LITELLM", "false").lower() == "true"
+
+if USE_LITELLM:
+    _litellm_model = os.getenv("LITELLM_MODEL", "groq/llama-3.3-70b-versatile")
+    _provider = _litellm_model.split("/")[0]  # e.g. "groq" or "openrouter"
+    _max_tokens = int(os.environ.get("MAX_OUTPUT_TOKEN", 1024))
+    _temperature = float(os.environ.get("TEMPERATURE", 0.1))
+
+    # Note: do NOT pass include_reasoning via extra_body — it is only valid for
+    # reasoning models (DeepSeek-R1, Qwen3-thinking, Nemotron reasoning variants).
+    # Sending it to non-reasoning models (Gemma 4, Llama, etc.) causes OpenRouter
+    # to return a 500 Internal Server Error.
+
+    logger.info(
+        f"Using LiteLLM | provider: {_provider} | model: {_litellm_model} "
+        f"| max_tokens: {_max_tokens} | temperature: {_temperature}"
+    )
+
+    model = LiteLlm(
+        model=_litellm_model,
+        max_tokens=_max_tokens,
+        temperature=_temperature,
+        timeout=60,  # fail after 60 s instead of hanging for minutes
+    )
+
+    # For compact/small-model mode: omit stock tools to reduce per-request tool
+    # token overhead. Stock tools add ~400 tokens of schema to every LLM call.
+    _use_compact = os.getenv("USE_COMPACT_INSTRUCTIONS", "true").lower() == "true"
+    _bq_tools = [list_tables, fetch_metadata, get_table_relationships, run_query]
+    _stock_tools = [
+        get_stock_quote, get_company_profile,
+        get_stock_historical_prices, get_stock_fundamentals, search_stock_symbol,
     ]
-)
+    _tools = _bq_tools if _use_compact else _bq_tools + _stock_tools
+
+    # Create Agent with LiteLLM model
+    # Note: Agent class is used instead of LlmAgent when using custom model providers
+    root_agent = Agent(
+        name="cdsl_bigquery_agent",
+        description="Agent to execute read-only BigQuery queries on CDSL securities data",
+        model=model,
+        instruction=return_instructions_root(),
+        global_instruction=return_global_instruction,
+        tools=_tools,
+    )
+else:
+    # Original Vertex AI Gemini-based LlmAgent
+    logger.info(f"Using Vertex AI with model: {os.getenv('ROOT_AGENT_MODEL', 'gemini-2.5-flash')}")
+    
+    root_agent = LlmAgent(
+        name="cdsl_bigquery_agent",
+        description="Agent to execute read-only BigQuery queries on CDSL securities data",
+        model=os.getenv("ROOT_AGENT_MODEL", "gemini-2.5-flash"),
+        instruction=return_instructions_root(),
+        global_instruction=return_global_instruction,
+        generate_content_config=types.GenerateContentConfig(
+            max_output_tokens=int(os.environ.get("MAX_OUTPUT_TOKEN", 4096)),
+            temperature=float(os.environ.get("TEMPERATURE", 1.0)),
+        ),
+        tools=[
+            list_tables,
+            fetch_metadata,
+            get_table_relationships,
+            run_query,
+            get_stock_quote,
+            get_company_profile,
+            get_stock_historical_prices,
+            get_stock_fundamentals,
+            search_stock_symbol,
+        ]
+    )
 
 app = App(
     root_agent=root_agent,
